@@ -249,8 +249,8 @@ define([
                             speedup : 0.5, //1.0,
                             wrap : ModelAnimationWrap.REPEAT, // ModelAnimationWrap.MIRRORED_REPEAT,
                             // reverse : true,
-                            start : animationStart,
-                            stop : animationStop
+                            // start : animationStart,
+                            // stop : animationStop
                             // , update : animationUpdate
                         });
                     }
