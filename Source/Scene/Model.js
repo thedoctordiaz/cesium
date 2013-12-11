@@ -34,7 +34,8 @@ define([
         './ModelCache',
         './ModelAnimationCollection',
         './SceneMode',
-        './gltfDefaults'
+        './gltfDefaults',
+        '../ThirdParty/wtf-trace'
     ], function(
         combine,
         defined,
@@ -70,7 +71,8 @@ define([
         ModelCache,
         ModelAnimationCollection,
         SceneMode,
-        gltfDefaults) {
+        gltfDefaults,
+        WTF) {
     "use strict";
 
     var ModelState = {
@@ -1210,7 +1212,11 @@ define([
         }
     }
 
+    var createResourcesWtf = WTF.trace.events.createScope('model-createResources');
+
     function createResources(model, context) {
+        var scope = createResourcesWtf();
+
         createBuffers(model, context);      // using glTF bufferViews
         createPrograms(model, context);
         createSamplers(model, context);
@@ -1223,6 +1229,8 @@ define([
         createUniformMaps(model, context);  // using glTF materials/techniques/passes/instanceProgram
 
         createCommands(model, context);     // using glTF scene
+
+        return WTF.trace.leaveScope(scope);
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -1330,7 +1338,11 @@ define([
 
     var scratchObjectSpace = new Matrix4();
 
+    var applySkinsWtf = WTF.trace.events.createScope('model-applySkins');
+
     function applySkins(model) {
+        var scope = applySkinsWtf();
+
         var gltf = model.gltf;
         var skins = gltf.skins;
         var nodes = gltf.nodes;
@@ -1376,6 +1388,8 @@ define([
                 }
             }
         }
+
+        return WTF.trace.leaveScope(scope);
     }
 
     function updatePickIds(model, context) {
@@ -1391,15 +1405,20 @@ define([
         }
     }
 
+    var modelUpdateWtf = WTF.trace.events.createScope('Model#update');
+    var updateModelMatrixWtf = WTF.trace.events.createScope('model-updateModelMatrix');
+
     /**
      * @exception {RuntimeError} Failed to load external reference.
      *
      * @private
      */
     Model.prototype.update = function(context, frameState, commandList) {
+        var scope = modelUpdateWtf();
+
         if (!this.show ||
             (frameState.mode !== SceneMode.SCENE3D)) {
-            return;
+            return WTF.trace.leaveScope(scope);
         }
 
         if ((this._state === ModelState.NEEDS_LOAD) && defined(this.gltf)) {
@@ -1431,7 +1450,9 @@ define([
                 this._scale = this.scale;
                 Matrix4.multiplyByUniformScale(this.modelMatrix, this.scale, this._computedModelMatrix);
 
+                var updateModelMatrixScope = updateModelMatrixWtf();
                 updateModelMatrix(this);
+                WTF.trace.leaveScope(updateModelMatrixScope);
 
                 if (animated || justLoaded) {
                     // Apply skins if animation changed any node transforms
@@ -1450,6 +1471,8 @@ define([
         updatePickIds(this, context);
 
         commandList.push(this._commandLists);
+
+        return WTF.trace.leaveScope(scope);
     };
 
     /**

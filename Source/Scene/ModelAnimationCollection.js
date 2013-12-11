@@ -10,7 +10,8 @@ define([
         '../Core/JulianDate',
         './ModelAnimationWrap',
         './ModelAnimationState',
-        './ModelAnimation'
+        './ModelAnimation',
+        '../ThirdParty/wtf-trace'
     ], function(
         defined,
         defineProperties,
@@ -22,7 +23,8 @@ define([
         JulianDate,
         ModelAnimationWrap,
         ModelAnimationState,
-        ModelAnimation) {
+        ModelAnimation,
+        WTF) {
     "use strict";
 
     /**
@@ -186,15 +188,19 @@ define([
         }
     }
 
+    var modelAnimationCollectionUpdateWtf = WTF.trace.events.createScope('ModelAnimationCollection#update');
+
     var animationsToRemove = [];
 
     /**
      * @private
      */
     ModelAnimationCollection.prototype.update = function(frameState) {
+        var scope = modelAnimationCollectionUpdateWtf();
+
         if (JulianDate.equals(frameState.time, frameState.previousTime)) {
             // Animations are currently only time-dependent so do not animate when paused or picking
-            return;
+            return WTF.trace.leaveScope(scope, false);
         }
 
         var animationOccured = false;
@@ -301,7 +307,7 @@ define([
         }
         animationsToRemove.length = 0;
 
-        return animationOccured;
+        return WTF.trace.leaveScope(scope, animationOccured);
     };
 
     return ModelAnimationCollection;
