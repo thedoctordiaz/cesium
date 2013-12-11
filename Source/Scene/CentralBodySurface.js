@@ -22,7 +22,8 @@ define([
         './TerrainProvider',
         './TileReplacementQueue',
         './TileState',
-        '../ThirdParty/when'
+        '../ThirdParty/when',
+        '../ThirdParty/wtf-trace'
     ], function(
         defaultValue,
         defined,
@@ -46,7 +47,8 @@ define([
         TerrainProvider,
         TileReplacementQueue,
         TileState,
-        when) {
+        when,
+        WTF) {
     "use strict";
 
     /**
@@ -119,11 +121,19 @@ define([
         };
     };
 
+    var centralBodySurfaceWtf = WTF.trace.events.createScope('CentralBodySurface#update');
+    var statsWtf = WTF.trace.events.createInstance('CentralBodySurface_update(uint32 maxDepth, uint32 tilesVisited, uint32 tilesCulled, uint32 tilesRendered, uint32 texturesRendered, uint32 tilesWaitingForChildren)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
+
     CentralBodySurface.prototype.update = function(context, frameState, colorCommandList, centralBodyUniformMap, shaderSet, renderState, projection) {
+        var scope = centralBodySurfaceWtf();
+
         updateLayers(this);
         selectTilesForRendering(this, context, frameState);
         processTileLoadQueue(this, context, frameState);
         createRenderCommandsForSelectedTiles(this, context, frameState, shaderSet, projection, centralBodyUniformMap, colorCommandList, renderState);
+
+        statsWtf(this._debug.maxDepth, this._debug.tilesVisited, this._debug.tilesCulled, this._debug.tilesRendered, this._debug.texturesRendered, this._debug.tilesWaitingForChildren);
+        return WTF.trace.leaveScope(scope);
     };
 
     CentralBodySurface.prototype.getTerrainProvider = function() {

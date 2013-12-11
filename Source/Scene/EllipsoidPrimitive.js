@@ -19,7 +19,8 @@ define([
         './Material',
         './SceneMode',
         '../Shaders/EllipsoidVS',
-        '../Shaders/EllipsoidFS'
+        '../Shaders/EllipsoidFS',
+        '../ThirdParty/wtf-trace'
     ], function(
         defaultValue,
         BoxGeometry,
@@ -40,7 +41,8 @@ define([
         Material,
         SceneMode,
         EllipsoidVS,
-        EllipsoidFS) {
+        EllipsoidFS,
+        WTF) {
     "use strict";
 
     var attributeIndices = {
@@ -258,17 +260,21 @@ define([
         return vertexArray;
     }
 
+    var ellipsoidPrimitiveUpdateWtf = WTF.trace.events.createScope('EllipsoidPrimitive#update');
+
     /**
      * @private
      *
      * @exception {DeveloperError} this.material must be defined.
      */
     EllipsoidPrimitive.prototype.update = function(context, frameState, commandList) {
+        var scope = ellipsoidPrimitiveUpdateWtf();
+
         if (!this.show ||
             (frameState.mode !== SceneMode.SCENE3D) ||
             (!defined(this.center)) ||
             (!defined(this.radii))) {
-            return;
+            return WTF.trace.leaveScope(scope);
         }
 
         if (!defined(this.material)) {
@@ -424,6 +430,8 @@ define([
         }
 
         commandList.push(ellipsoidCommandLists);
+
+        return WTF.trace.leaveScope(scope);
     };
 
     /**

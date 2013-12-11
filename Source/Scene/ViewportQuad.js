@@ -16,7 +16,8 @@ define([
         '../Renderer/DrawCommand',
         '../Renderer/createShaderSource',
         '../Shaders/ViewportQuadVS',
-        '../Shaders/ViewportQuadFS'
+        '../Shaders/ViewportQuadFS',
+        '../ThirdParty/wtf-trace'
     ], function(
         Color,
         destroyObject,
@@ -34,7 +35,8 @@ define([
         DrawCommand,
         createShaderSource,
         ViewportQuadVS,
-        ViewportQuadFS) {
+        ViewportQuadFS,
+        WTF) {
     "use strict";
 
     /**
@@ -158,6 +160,8 @@ define([
         return vertexArray;
     }
 
+    var viewportQuadUpdateWtf = WTF.trace.events.createScope('ViewportQuad#update');
+
     /**
      * Commits changes to properties before rendering by updating the object's WebGL resources.
      *
@@ -167,9 +171,11 @@ define([
      * @exception {DeveloperError} this.rectangle must be defined.
      */
     ViewportQuad.prototype.update = function(context, frameState, commandList) {
+        var scope = viewportQuadUpdateWtf();
+
         if (!this.show)
         {
-            return;
+            return WTF.trace.leaveScope(scope);
         }
 
         if (!defined(this.material)) {
@@ -209,6 +215,8 @@ define([
             this._overlayCommand.uniformMap = this._material._uniforms;
             commandList.push(this._commandLists);
         }
+
+        return WTF.trace.leaveScope(scope);
     };
 
     /**

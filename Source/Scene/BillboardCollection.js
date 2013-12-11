@@ -23,7 +23,8 @@ define([
         './Billboard',
         './HorizontalOrigin',
         '../Shaders/BillboardCollectionVS',
-        '../Shaders/BillboardCollectionFS'
+        '../Shaders/BillboardCollectionFS',
+        '../ThirdParty/wtf-trace'
     ], function(
         defined,
         DeveloperError,
@@ -48,7 +49,8 @@ define([
         Billboard,
         HorizontalOrigin,
         BillboardCollectionVS,
-        BillboardCollectionFS) {
+        BillboardCollectionFS,
+        WTF) {
     "use strict";
 
     var SHOW_INDEX = Billboard.SHOW_INDEX;
@@ -1097,22 +1099,26 @@ define([
         boundingVolume.radius += size + offset;
     }
 
+    var billboardCollectionUpdateWtf = WTF.trace.events.createScope('BillboardCollection#update');
+
     /**
      * @private
      */
     BillboardCollection.prototype.update = function(context, frameState, commandList) {
+        var scope = billboardCollectionUpdateWtf();
+
         var textureAtlas = this._textureAtlas;
         if (!defined(textureAtlas)) {
             // Can't write billboard vertices until we have texture coordinates
             // provided by a texture atlas
-            return;
+            return WTF.trace.leaveScope(scope);
         }
 
         var textureAtlasCoordinates = textureAtlas.getTextureCoordinates();
         if (textureAtlasCoordinates.length === 0) {
             // Can't write billboard vertices until we have texture coordinates
             // provided by a texture atlas
-            return;
+            return WTF.trace.leaveScope(scope);
         }
 
         removeBillboards(this);
@@ -1246,7 +1252,7 @@ define([
         }
 
         if (!defined(this._vaf) || !defined(this._vaf.vaByPurpose)) {
-            return;
+            return WTF.trace.leaveScope(scope);
         }
 
         if (this._boundingVolumeDirty) {
@@ -1385,6 +1391,8 @@ define([
         if (!commandLists.empty()) {
             commandList.push(commandLists);
         }
+
+        return WTF.trace.leaveScope(scope);
     };
 
     /**

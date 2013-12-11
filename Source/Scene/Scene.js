@@ -39,7 +39,8 @@ define([
         './Primitive',
         './PerInstanceColorAppearance',
         './SunPostProcess',
-        './CreditDisplay'
+        './CreditDisplay',
+        '../ThirdParty/wtf-trace'
     ], function(
         CesiumMath,
         Color,
@@ -80,7 +81,8 @@ define([
         Primitive,
         PerInstanceColorAppearance,
         SunPostProcess,
-        CreditDisplay) {
+        CreditDisplay,
+        WTF) {
     "use strict";
 
     /**
@@ -479,7 +481,12 @@ define([
     var scratchCullingVolume = new CullingVolume();
     var distances = new Interval();
 
+    var createPotentiallyVisibleSetWtf = WTF.trace.events.createScope('createPotentiallyVisibleSet');
+    var commandsWtf = WTF.trace.events.createInstance('Scene_createPotentiallyVisibleSet(uint32 totalcommands, uint32 visiblecommands)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
+
     function createPotentiallyVisibleSet(scene, listNames, pick) {
+        var scope = createPotentiallyVisibleSetWtf();
+
         var commandLists = scene._commandList;
         var cullingVolume = scene._frameState.cullingVolume;
         var camera = scene._camera;
@@ -516,6 +523,9 @@ define([
         }
         cullingVolume = scratchCullingVolume;
 
+        var totalCommands = 0;
+        var visibleCommands = 0;
+
         var length = commandLists.length;
         var listNameLength = listNames.length;
         for (var i = 0; i < listNameLength; ++i) {
@@ -523,6 +533,7 @@ define([
             for (var j = 0; j < length; ++j) {
                 var commandList = !pick ? commandLists[j][listName] : commandLists[j].pickList[listName];
                 var commandListLength = commandList.length;
+                totalCommands += commandListLength;
                 for (var k = 0; k < commandListLength; ++k) {
                     var command = commandList[k];
                     var boundingVolume = command.boundingVolume;
@@ -546,6 +557,7 @@ define([
                     }
 
                     insertIntoBin(scene, command, distances);
+                    ++visibleCommands;
                 }
             }
         }
@@ -570,6 +582,9 @@ define([
             updateFrustums(near, far, farToNearRatio, numFrustums, frustumCommandsList);
             createPotentiallyVisibleSet(scene, listNames, pick);
         }
+
+        commandsWtf(totalCommands, visibleCommands);
+        return WTF.trace.leaveScope(scope);
     }
 
     function createFrustumDebugFragmentShaderSource(command) {
@@ -682,7 +697,13 @@ define([
                    (!defined(occluder) || occluder.isBoundingSphereVisible(boundingVolume)))));
     }
 
+    var executeCommandsWtf = WTF.trace.events.createScope('executeCommands');
+    var executeCommandsFrustumWtf = WTF.trace.events.createScope('frustum');
+    var executeCommandsFrustumStatsWtf = WTF.trace.events.createInstance('executeCommands_frustum(uint32 commands)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
+
     function executeCommands(scene, passState, clearColor) {
+        var scope = executeCommandsWtf();
+
         var frameState = scene._frameState;
         var camera = scene._camera;
         var frustum = camera.frustum.clone();
@@ -747,6 +768,8 @@ define([
         var frustumCommandsList = scene._frustumCommandsList;
         var numFrustums = frustumCommandsList.length;
         for (var i = 0; i < numFrustums; ++i) {
+            var frustumScope = executeCommandsFrustumWtf();
+
             clearDepthStencil.execute(context, passState);
 
             var index = numFrustums - i - 1;
@@ -761,10 +784,19 @@ define([
             for (var j = 0; j < length; ++j) {
                 executeCommand(commands[j], scene, context, passState);
             }
+
+            executeCommandsFrustumStatsWtf(length);
+            WTF.trace.leaveScope(frustumScope);
         }
+
+        return WTF.trace.leaveScope(scope);
     }
 
+    var executeOverlayCommandsWtf = WTF.trace.events.createScope('executeOverlayCommands');
+
     function executeOverlayCommands(scene, passState) {
+        var scope = executeOverlayCommandsWtf();
+
         var context = scene._context;
         var commandLists = scene._commandList;
         var length = commandLists.length;
@@ -775,9 +807,15 @@ define([
                 commandList[j].execute(context, passState);
             }
         }
+
+        return WTF.trace.leaveScope(scope);
     }
 
+    var updatePrimitivesWtf = WTF.trace.events.createScope('updatePrimitives');
+
     function updatePrimitives(scene) {
+        var scope = updatePrimitivesWtf();
+
         var context = scene._context;
         var frameState = scene._frameState;
         var commandList = scene._commandList;
@@ -787,6 +825,8 @@ define([
         if (defined(scene.moon)) {
             scene.moon.update(context, frameState, commandList);
         }
+
+        return WTF.trace.leaveScope(scope);
     }
 
     function executeEvents(frameState) {
@@ -818,11 +858,15 @@ define([
 
     var renderListNames = ['opaqueList', 'translucentList'];
 
+    var sceneRenderWtf = WTF.trace.events.createScope('Scene#render');
+
     /**
      * DOC_TBA
      * @memberof Scene
      */
     Scene.prototype.render = function(time) {
+        var scope = sceneRenderWtf();
+
         if (!defined(time)) {
             time = new JulianDate();
         }
@@ -850,6 +894,8 @@ define([
         frameState.creditDisplay.endFrame();
         context.endFrame();
         executeEvents(frameState);
+
+        return WTF.trace.leaveScope(scope);
     };
 
     var orthoPickingFrustum = new OrthographicFrustum();
@@ -932,6 +978,8 @@ define([
     var scratchRectangle = new BoundingRectangle(0.0, 0.0, rectangleWidth, rectangleHeight);
     var scratchColorZero = new Color(0.0, 0.0, 0.0, 0.0);
 
+    var scenePickWtf = WTF.trace.events.createScope('Scene#pick');
+
     /**
      * Returns an object with a `primitive` property that contains the first (top) primitive in the scene
      * at a particular window coordinate or undefined if nothing is at the location. Other properties may
@@ -947,6 +995,8 @@ define([
      *
      */
     Scene.prototype.pick = function(windowPosition) {
+        var scope = scenePickWtf();
+
         if(!defined(windowPosition)) {
             throw new DeveloperError('windowPosition is undefined.');
         }
@@ -979,7 +1029,8 @@ define([
         var object = this._pickFramebuffer.end(scratchRectangle);
         context.endFrame();
         executeEvents(frameState);
-        return object;
+
+        return WTF.trace.leaveScope(scope, object);
     };
 
     /**

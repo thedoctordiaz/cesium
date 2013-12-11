@@ -25,7 +25,8 @@ define([
         './Polyline',
         '../Shaders/PolylineCommon',
         '../Shaders/PolylineVS',
-        '../Shaders/PolylineFS'
+        '../Shaders/PolylineFS',
+        '../ThirdParty/wtf-trace'
     ], function(
         defaultValue,
         defined,
@@ -52,7 +53,8 @@ define([
         Polyline,
         PolylineCommon,
         PolylineVS,
-        PolylineFS) {
+        PolylineFS,
+        WTF) {
     "use strict";
 
     var SHOW_INDEX = Polyline.SHOW_INDEX;
@@ -390,14 +392,18 @@ define([
 
     var emptyArray = [];
 
+    var polylineCollectionUpdateWtf = WTF.trace.events.createScope('PolylineCollection#update');
+
     /**
      * @private
      */
     PolylineCollection.prototype.update = function(context, frameState, commandList) {
+        var scope = polylineCollectionUpdateWtf();
+
         removePolylines(this);
 
         if (this._polylines.length === 0) {
-            return;
+            return WTF.trace.leaveScope(scope);
         }
 
         updateMode(this, frameState);
@@ -446,6 +452,8 @@ define([
             }
             polylinesToUpdate.length = 0;
             this._polylinesUpdated = false;
+
+            return WTF.trace.leaveScope(scope);
         }
 
         properties = this._propertiesChanged;

@@ -25,7 +25,8 @@ define([
         './PrimitivePipeline',
         './PrimitiveState',
         './SceneMode',
-        '../ThirdParty/when'
+        '../ThirdParty/when',
+        '../ThirdParty/wtf-trace'
     ], function(
         defaultValue,
         defined,
@@ -52,7 +53,8 @@ define([
         PrimitivePipeline,
         PrimitiveState,
         SceneMode,
-        when) {
+        when,
+        WTF) {
     "use strict";
 
     var EMPTY_ARRAY = [];
@@ -524,17 +526,21 @@ define([
 
     var taskProcessor = new TaskProcessor('taskDispatcher', Number.POSITIVE_INFINITY);
 
+    var primitiveUpdateWtf = WTF.trace.events.createScope('Primitive#update');
+
     /**
      * @private
      */
     Primitive.prototype.update = function(context, frameState, commandList) {
+        var scope = primitiveUpdateWtf();
+
         if (!this.show ||
             ((!defined(this.geometryInstances)) && (this._va.length === 0)) ||
             (defined(this.geometryInstances) && Array.isArray(this.geometryInstances) && this.geometryInstances.length === 0) ||
             (!defined(this.appearance)) ||
             (frameState.mode !== SceneMode.SCENE3D && this.allow3DOnly) ||
             (!frameState.passes.color && !frameState.passes.pick)) {
-            return;
+            return WTF.trace.leaveScope(scope);
         }
 
         var projection = frameState.scene2D.projection;
@@ -734,7 +740,7 @@ define([
         }
 
         if (this._state !== PrimitiveState.COMPLETE) {
-            return;
+            return WTF.trace.leaveScope(scope);
         }
 
         // Create or recreate render state and shader program if appearance/material changed
@@ -955,6 +961,8 @@ define([
         this._commandLists.pickList.translucentList = (pass.pick && translucent) ? pickCommands : EMPTY_ARRAY;
 
         commandList.push(this._commandLists);
+
+        return WTF.trace.leaveScope(scope);
     };
 
     function createGetFunction(name, perInstanceAttributes) {
