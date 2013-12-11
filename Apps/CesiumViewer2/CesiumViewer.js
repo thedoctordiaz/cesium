@@ -204,10 +204,10 @@ define([
             url : defaultValue(endUserOptions.model, './Gallery/model/duck/duck.json'),
             modelMatrix : modelMatrix,
             scale : 10.0
-            //, allowPicking : false
+            , allowPicking : false
             //, debugShowBoundingVolume : true
         }));
-
+/*
         var animationStart = new Event();
         animationStart.addEventListener(function() {
             console.log('start animation');
@@ -229,7 +229,7 @@ define([
         model.animations.animationRemoved.addEventListener(function(animation) {
             console.log('Removed ' + animation.name);
         });
-
+*/
         var statistics;
 
         model.jsonLoad.addEventListener(function() {
@@ -277,6 +277,7 @@ define([
                 Cartesian3.UNIT_Z);
         });
 
+/*
         var prevPickedNode;
         var prevPickedMesh;
         var prevPickedPrimitiveIndex;
@@ -302,15 +303,16 @@ define([
             },
             ScreenSpaceEventType.MOUSE_MOVE
         );
+*/
 
 //      scene.debugCommandFilter = function(command) { return command.owner.instance === model; };
 
-// /*
+ /*
         scene.getPrimitives().add(new DebugModelMatrixPrimitive({
             modelMatrix : modelMatrix,
             scale : 100000.0,
             width : 10.0
         }));
-// */
+ */
     }
 });
