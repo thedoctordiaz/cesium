@@ -200,7 +200,7 @@ define([
 
         if (JulianDate.equals(frameState.time, frameState.previousTime)) {
             // Animations are currently only time-dependent so do not animate when paused or picking
-            return false;
+            return WTF.trace.leaveScope(scope, false);
         }
 
         var animationOccured = false;
