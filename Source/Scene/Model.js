@@ -19,6 +19,7 @@ define([
         '../Core/Matrix3',
         '../Core/Matrix4',
         '../Core/BoundingSphere',
+        '../Core/PrimitiveType',
         '../Core/IndexDatatype',
         '../Core/Math',
         '../Core/Event',
@@ -56,6 +57,7 @@ define([
         Matrix3,
         Matrix4,
         BoundingSphere,
+        PrimitiveType,
         IndexDatatype,
         CesiumMath,
         Event,
@@ -239,6 +241,12 @@ define([
          * DOC_TBA
          */
         this.debugShowBoundingVolume = defaultValue(options.debugShowBoundingVolume, false);
+
+        /**
+         * DOC_TBA
+         */
+        this.debugWireframe = defaultValue(options.debugWireframe, false);
+        this._debugWireframe = false;
 
         this._computedModelMatrix = new Matrix4(); // Derived from modelMatrix and scale
         this._state = ModelState.NEEDS_LOAD;
@@ -1137,7 +1145,7 @@ define([
                     opaqueColorCommands.push(command);
                 }
 
-                var pickCommand = undefined;
+                var pickCommand;
 
                 if (allowPicking) {
                     var pickId = context.createPickId(owner);
@@ -1263,6 +1271,7 @@ define([
         var computedModelMatrix = model._computedModelMatrix;
 
         // Compute bounding sphere that includes all transformed nodes
+        scratchSpheres.length = 0;
         var spheres = scratchSpheres;
         var sphereCenter = new Cartesian3();
 
@@ -1408,6 +1417,30 @@ define([
         }
     }
 
+    function updateWireframe(model) {
+        if (model._debugWireframe !== model.debugWireframe) {
+            model._debugWireframe = model.debugWireframe;
+
+            // This assumes the original primitive was TRIANGLES and that the triangles
+            // are connected for the wireframe to look perfect.
+            var primitiveType = model.debugWireframe ? PrimitiveType.LINES : PrimitiveType.TRIANGLES;
+            var opaqueCommands = model._commandLists.opaqueList;
+            var translucentCommands = model._commandLists.translucentList;
+            var i;
+            var length;
+
+            length = opaqueCommands.length;
+            for (i = 0; i < length; ++i) {
+                opaqueCommands[i].primitiveType = primitiveType;
+            }
+
+            length = translucentCommands.length;
+            for (i = 0; i < length; ++i) {
+                translucentCommands[i].primitiveType = primitiveType;
+            }
+        }
+    }
+
     var modelUpdateWtf = WTF.trace.events.createScope('Model#update');
     var updateModelMatrixWtf = WTF.trace.events.createScope('model-updateModelMatrix');
 
@@ -1462,6 +1495,9 @@ define([
                     applySkins(this);
                 }
             }
+
+            updatePickIds(this, context);
+            updateWireframe(this);
         }
 
         if (justLoaded) {
@@ -1470,8 +1506,6 @@ define([
                 event : this.readyToRender
             });
         }
-
-        updatePickIds(this, context);
 
         commandList.push(this._commandLists);
 

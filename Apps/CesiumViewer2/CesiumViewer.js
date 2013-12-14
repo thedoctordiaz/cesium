@@ -193,6 +193,7 @@ define([
         var ellipsoid = viewer.centralBody.getEllipsoid();
 
         //scene.getPrimitives().setCentralBody(undefined);
+        scene.debugShowCommands = endUserOptions.showCommands;
         scene.skyBox = undefined;
         scene.skyAtmosphere = undefined;
         viewer.timeline.zoomTo(new JulianDate(), (new JulianDate()).addSeconds(30.0));
@@ -204,6 +205,7 @@ define([
             url : defaultValue(endUserOptions.model, './Gallery/model/duck/duck.json'),
             modelMatrix : modelMatrix,
             scale : 10.0
+            debugWireframe : endUserOptions.wireframe
             , allowPicking : false
             //, debugShowBoundingVolume : true
         }));
