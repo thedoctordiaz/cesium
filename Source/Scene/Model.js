@@ -1252,7 +1252,7 @@ define([
         return Matrix4.fromTranslationQuaternionRotationScale(czm.translation, czm.rotation, czm.scale, result);
     }
 
-    // To reduce allocations in updateModelMatrix()
+ // To reduce allocations in updateModelMatrix()
     var scratchNodeStack = [];
 
     var scratchSphereCenter = new Cartesian3();
