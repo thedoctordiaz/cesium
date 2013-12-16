@@ -189,6 +189,7 @@ define([
     }
 
     var modelAnimationCollectionUpdateWtf = WTF.trace.events.createScope('ModelAnimationCollection#update');
+    var modelAnimationCollectionUpdateStatsWtf = WTF.trace.events.createInstance('ModelAnimationCollection#update_numberOfAnimations(uint32 numberOfAnimations)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
 
     var animationsToRemove = [];
 
@@ -296,8 +297,8 @@ define([
         }
 
         // Remove animations that stopped
-        length = animationsToRemove.length;
-        for (var j = 0; j < length; ++j) {
+        var removeLength = animationsToRemove.length;
+        for (var j = 0; j < removeLength; ++j) {
             var animationToRemove = animationsToRemove[j];
             scheduledAnimations.splice(scheduledAnimations.indexOf(animationToRemove), 1);
             events.push({
@@ -307,6 +308,7 @@ define([
         }
         animationsToRemove.length = 0;
 
+        modelAnimationCollectionUpdateStatsWtf(length);
         return WTF.trace.leaveScope(scope, animationOccured);
     };
 
