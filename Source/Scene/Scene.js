@@ -34,6 +34,7 @@ define([
         './SceneTransforms',
         './FrameState',
         './OrthographicFrustum',
+        './PerspectiveFrustum',
         './PerspectiveOffCenterFrustum',
         './FrustumCommands',
         './Primitive',
@@ -76,6 +77,7 @@ define([
         SceneTransforms,
         FrameState,
         OrthographicFrustum,
+        PerspectiveFrustum,
         PerspectiveOffCenterFrustum,
         FrustumCommands,
         Primitive,
@@ -730,14 +732,26 @@ define([
     var executeCommandsFrustumWtf = WTF.trace.events.createScope('frustum');
     var executeCommandsFrustumStatsWtf = WTF.trace.events.createInstance('executeCommands_frustum(uint32 commands)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
 
+    var scratchPerspectiveFrustum = new PerspectiveFrustum();
+    var scratchPerspectiveOffCenterFrustum = new PerspectiveOffCenterFrustum();
+    var scratchOrthographicFrustum = new OrthographicFrustum();
+
     function executeCommands(scene, passState, clearColor) {
         var scope = executeCommandsWtf();
 
         var frameState = scene._frameState;
         var camera = scene._camera;
-        var frustum = camera.frustum.clone();
         var context = scene._context;
         var us = context.getUniformState();
+
+        var frustum;
+        if (defined(camera.frustum.fovy)) {
+            frustum = camera.frustum.clone(scratchPerspectiveFrustum);
+        } else if (defined(camera.frustum.infiniteProjectionMatrix)){
+            frustum = camera.frustum.clone(scratchPerspectiveOffCenterFrustum);
+        } else {
+            frustum = camera.frustum.clone(scratchOrthographicFrustum);
+        }
 
         if (defined(scene.sun) && scene.sunBloom !== scene._sunBloom) {
             if (scene.sunBloom) {
