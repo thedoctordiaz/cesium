@@ -84,7 +84,7 @@ define([
     };
 
     function LoadResources() {
-        this.bufferViewsToCreate = new Queue();
+        this.buffersToCreate = new Queue();
         this.buffers = {};
         this.pendingBufferLoads = 0;
 
@@ -97,11 +97,11 @@ define([
 
         this.createSamplers = true;
         this.createSkins = true;
-        this.createAnimations = true;
+        this.createRuntimeAnimations = true;
         this.createVertexArrays = true;
         this.createRenderStates = true;
         this.createUniformMaps = true;
-        this.createCommands = true;
+        this.createRuntimeNodes = true;
     }
 
     LoadResources.prototype.finishedPendingLoads = function() {
@@ -111,13 +111,13 @@ define([
     };
 
     LoadResources.prototype.finishedResourceCreation = function() {
-        return ((this.bufferViewsToCreate.length === 0) &&
+        return ((this.buffersToCreate.length === 0) &&
                 (this.programsToCreate.length === 0) &&
                 (this.texturesToCreate.length === 0));
     };
 
-    LoadResources.prototype.finishedBufferViewsCreation = function() {
-        return ((this.pendingBufferLoads === 0) && (this.bufferViewsToCreate.length === 0));
+    LoadResources.prototype.finishedBuffersCreation = function() {
+        return ((this.pendingBufferLoads === 0) && (this.buffersToCreate.length === 0));
     };
 
     LoadResources.prototype.finishedProgramCreation = function() {
@@ -258,10 +258,23 @@ define([
         this._loadResources = undefined;
 
         this._runtime = {
-            animations : undefined
+            animations : undefined,
+            rootNodes : undefined,
+            nodes : undefined,
+            skinnedNodes : undefined
+        };
+        this._rendererResources = {
+            buffers : {},
+            vertexArrays : {},
+            programs : {},
+            pickPrograms : {},
+            textures : {},
+
+            samplers : {},
+            renderStates : {},
+            uniformMaps : {}
         };
 
-        this._skinnedNodes = [];
         this._commandLists = new CommandLists();
         this._pickIds = [];
     };
@@ -270,9 +283,11 @@ define([
      * DOC_TBA
      */
     Model.fromText = function(options) {
+        //>>includeStart('debug', pragmas.debug);
         if (!defined(options) || !defined(options.url)) {
             throw new DeveloperError('options.url is required');
         }
+        //>>includeEnd('debug');
 
         var url = options.url;
         var basePath = '';
@@ -323,7 +338,7 @@ define([
         var bufferViews = model.gltf.bufferViews;
         for (var name in bufferViews) {
             if (bufferViews.hasOwnProperty(name)) {
-                model._loadResources.bufferViewsToCreate.enqueue(name);
+                model._loadResources.buffersToCreate.enqueue(name);
             }
         }
     }
@@ -379,39 +394,49 @@ define([
         }
     }
 
-    var scratchAxis = new Cartesian3();
-
     function parseNodes(model) {
+        var runtimeNodes = {};
+        var skinnedNodes = [];
+
         var nodes = model.gltf.nodes;
-        var skinnedNodes = model._skinnedNodes;
 
         for (var name in nodes) {
             if (nodes.hasOwnProperty(name)) {
                 var node = nodes[name];
 
-                node.czm = {
-                    meshesCommands : undefined,
-                    transformToRoot : new Matrix4(),
-                    computedMatrix : undefined,
+                var runtimeNode = {
+// TODO: remove these?
+                    name : name,
+
+                    matrix : undefined,
                     translation : undefined,
                     rotation : undefined,
-                    scale : undefined
+                    scale : undefined,
+
+                    transformToRoot : new Matrix4(),
+                    computedMatrix : new Matrix4(),
+                    dirty : false,                      // for graph traversal
+                    anyAncestorDirty : false,           // for graph traversal
+
+                    commands : [],                      // empty for transform, light, and camera nodes
+
+                    skin : undefined,                   // undefined when node is not skinned
+                    jointMatrices : [],                 // empty when node is not skinned
+                    skeletons : [],                     // empty when node is not skinned
+
+                    children : [],                      // empty for leaf nodes
+                    parents : []                        // empty for root nodes
                 };
+                runtimeNodes[name] = runtimeNode;
 
                 if (defined(node.instanceSkin)) {
-                    skinnedNodes.push(node);
-                }
-
-                if (!defined(node.matrix)) {
-                    // TRS converted to Cesium types
-                    node.czm.translation = Cartesian3.fromArray(node.translation);
-                    var axis = Cartesian3.fromArray(node.rotation, 0, scratchAxis);
-                    var angle = node.rotation[3];
-                    node.czm.rotation = Quaternion.fromAxisAngle(axis, angle);
-                    node.czm.scale = Cartesian3.fromArray(node.scale);
+                    skinnedNodes.push(runtimeNode);
                 }
             }
         }
+
+        model._runtime.nodes = runtimeNodes;
+        model._runtime.skinnedNodes = skinnedNodes;
     }
 
     function parse(model) {
@@ -436,23 +461,22 @@ define([
         var bufferView;
         var bufferViews = model.gltf.bufferViews;
         var buffers = loadResources.buffers;
+        var rendererBuffers = model._rendererResources.buffers;
 
-        while (loadResources.bufferViewsToCreate.length > 0) {
-            var bufferViewName = loadResources.bufferViewsToCreate.dequeue();
+        while (loadResources.buffersToCreate.length > 0) {
+            var bufferViewName = loadResources.buffersToCreate.dequeue();
             bufferView = bufferViews[bufferViewName];
-            bufferView.czm = {
-                webglBuffer : undefined
-            };
 
             if (bufferView.target === WebGLRenderingContext.ARRAY_BUFFER) {
                 // Only ARRAY_BUFFER here.  ELEMENT_ARRAY_BUFFER created below.
                 raw = new Uint8Array(buffers[bufferView.buffer], bufferView.byteOffset, bufferView.byteLength);
                 var vertexBuffer = context.createVertexBuffer(raw, BufferUsage.STATIC_DRAW);
                 vertexBuffer.setVertexArrayDestroyable(false);
-                bufferView.czm.webglBuffer = vertexBuffer;
+                rendererBuffers[bufferViewName] = vertexBuffer;
             }
 
-            // bufferViews referencing animations are ignored here and handled in createAnimations.
+            // bufferViews referencing animations are ignored here and handled in createRuntimeAnimations.
+            // bufferViews referencing skins are ignored here and handled in createSkins.
         }
 
         // The Cesium Renderer requires knowing the datatype for an index buffer
@@ -464,11 +488,11 @@ define([
                 var instance = accessors[name];
                 bufferView = bufferViews[instance.bufferView];
 
-                if ((bufferView.target === WebGLRenderingContext.ELEMENT_ARRAY_BUFFER) && !defined(bufferView.czm.webglBuffer)) {
+                if ((bufferView.target === WebGLRenderingContext.ELEMENT_ARRAY_BUFFER) && !defined(rendererBuffers[instance.bufferView])) {
                     raw = new Uint8Array(buffers[bufferView.buffer], bufferView.byteOffset, bufferView.byteLength);
                     var indexBuffer = context.createIndexBuffer(raw, BufferUsage.STATIC_DRAW, instance.type);
                     indexBuffer.setVertexArrayDestroyable(false);
-                    bufferView.czm.webglBuffer = indexBuffer;
+                    rendererBuffers[instance.bufferView] = indexBuffer;
                     // In theory, several glTF accessors with different types could
                     // point to the same glTF bufferView, which would break this.
                     // In practice, it is unlikely as it will be UNSIGNED_SHORT.
@@ -507,10 +531,7 @@ define([
             var vs = shaders[program.vertexShader];
             var fs = shaders[program.fragmentShader];
 
-            program.czm = {
-                program : context.getShaderCache().getShaderProgram(vs, fs, attributeLocations),
-                pickProgram : undefined
-            };
+            model._rendererResources.programs[name] = context.getShaderCache().getShaderProgram(vs, fs, attributeLocations);
 
             if (model.allowPicking) {
              // TODO: Can optimize this shader with a glTF hint. https://github.com/KhronosGroup/glTF/issues/181
@@ -518,7 +539,7 @@ define([
                     sources : [fs],
                     pickColorQualifier : 'uniform'
                 });
-                program.czm.pickProgram = context.getShaderCache().getShaderProgram(vs, pickFS, attributeLocations);
+                model._rendererResources.pickPrograms[name] = context.getShaderCache().getShaderProgram(vs, pickFS, attributeLocations);
             }
         }
     }
@@ -529,19 +550,18 @@ define([
         if (loadResources.createSamplers) {
             loadResources.createSamplers = false;
 
+            var rendererSamplers = model._rendererResources.samplers;
             var samplers = model.gltf.samplers;
             for (var name in samplers) {
                 if (samplers.hasOwnProperty(name)) {
                     var sampler = samplers[name];
 
-                    sampler.czm = {
-                        sampler : context.createSampler({
-                            wrapS : sampler.wrapS,
-                            wrapT : sampler.wrapT,
-                            minificationFilter : sampler.minFilter,
-                            magnificationFilter : sampler.magFilter
-                        })
-                    };
+                    rendererSamplers[name] = context.createSampler({
+                        wrapS : sampler.wrapS,
+                        wrapT : sampler.wrapT,
+                        minificationFilter : sampler.minFilter,
+                        magnificationFilter : sampler.magFilter
+                    });
                 }
             }
         }
@@ -550,19 +570,19 @@ define([
     function createTextures(model, context) {
         var loadResources = model._loadResources;
         var textures = model.gltf.textures;
-        var samplers = model.gltf.samplers;
+        var rendererSamplers = model._rendererResources.samplers;
 
         // Create one texture per frame
         if (loadResources.texturesToCreate.length > 0) {
             var textureToCreate = loadResources.texturesToCreate.dequeue();
             var texture = textures[textureToCreate.name];
-            var sampler = samplers[texture.sampler];
+            var sampler = rendererSamplers[texture.sampler];
 
             var mipmap =
-                (sampler.minFilter === TextureMinificationFilter.NEAREST_MIPMAP_NEAREST) ||
-                (sampler.minFilter === TextureMinificationFilter.NEAREST_MIPMAP_LINEAR) ||
-                (sampler.minFilter === TextureMinificationFilter.LINEAR_MIPMAP_NEAREST) ||
-                (sampler.minFilter === TextureMinificationFilter.LINEAR_MIPMAP_LINEAR);
+                (sampler.minificationFilter === TextureMinificationFilter.NEAREST_MIPMAP_NEAREST) ||
+                (sampler.minificationFilter === TextureMinificationFilter.NEAREST_MIPMAP_LINEAR) ||
+                (sampler.minificationFilter === TextureMinificationFilter.LINEAR_MIPMAP_NEAREST) ||
+                (sampler.minificationFilter === TextureMinificationFilter.LINEAR_MIPMAP_LINEAR);
             var requiresNpot = mipmap ||
                 (sampler.wrapS === TextureWrap.REPEAT) ||
                 (sampler.wrapS === TextureWrap.MIRRORED_REPEAT) ||
@@ -597,11 +617,9 @@ define([
             if (mipmap) {
                 tx.generateMipmap();
             }
-            tx.setSampler(sampler.czm.sampler);
+            tx.setSampler(sampler);
 
-            texture.czm = {
-                texture : tx
-            };
+            model._rendererResources.textures[textureToCreate.name] = tx;
         }
     }
 
@@ -618,9 +636,8 @@ define([
         var parameters = technique.parameters;
         var pass = technique.passes[technique.pass];
         var instanceProgram = pass.instanceProgram;
-        var program = programs[instanceProgram.program];
         var attributes = instanceProgram.attributes;
-        var programAttributeLocations = program.czm.program.getVertexAttributes();
+        var programAttributeLocations = model._rendererResources.programs[instanceProgram.program].getVertexAttributes();
 
         for (var name in attributes) {
             if (attributes.hasOwnProperty(name)) {
@@ -636,7 +653,7 @@ define([
     function createSkins(model) {
         var loadResources = model._loadResources;
 
-        if (!loadResources.finishedBufferViewsCreation()) {
+        if (!loadResources.finishedBuffersCreation()) {
             return;
         }
 
@@ -649,6 +666,9 @@ define([
         var buffers = loadResources.buffers;
         var bufferViews = gltf.bufferViews;
         var skins = gltf.skins;
+        var nodes = gltf.nodes;
+        var runtimeNodes = model._runtime.nodes;
+        var runtimeSkins = {};
 
         for (var name in skins) {
             if (skins.hasOwnProperty(name)) {
@@ -675,10 +695,25 @@ define([
                     bindShapeMatrix = Matrix4.clone(skin.bindShapeMatrix);
                 }
 
-                skin.czm = {
+                runtimeSkins[name] = {
                     inverseBindMatrices : matrices,
                     bindShapeMatrix : bindShapeMatrix // not used when undefined
                 };
+            }
+        }
+
+        var skinnedNodes = model._runtime.skinnedNodes;
+        var length = skinnedNodes.length;
+        for (var j = 0; j < length; ++j) {
+            var skinnedNode = skinnedNodes[j];
+            skinnedNode.skin = runtimeSkins[nodes[skinnedNode.name].instanceSkin.skin];
+
+            // TODO: we first find nodes with the names in instanceSkin.skeletons, then we only search those nodes and their sub-trees for nodes with jointId equal to the strings in skin.joints. Is this correct?
+            // TODO: https://github.com/KhronosGroup/glTF/issues/193
+            var gltfSkeletons = nodes[skinnedNode.name].instanceSkin.skeletons;
+            var skeletonsLength = gltfSkeletons.length;
+            for (var k = 0; k < skeletonsLength; ++k) {
+                skinnedNode.skeletons.push(runtimeNodes[gltfSkeletons[k]]);
             }
         }
     }
@@ -686,28 +721,28 @@ define([
     function getChannelEvaluator(runtimeNode, targetPath, spline) {
         return function(localAnimationTime) {
             runtimeNode[targetPath] = spline.evaluate(localAnimationTime, runtimeNode[targetPath]);
+            runtimeNode.dirty = true;
         };
     }
 
-    function createAnimations(model) {
+    function createRuntimeAnimations(model) {
         var loadResources = model._loadResources;
 
         if (!loadResources.finishedPendingLoads()) {
             return;
         }
 
-        if (!loadResources.createAnimations) {
+        if (!loadResources.createRuntimeAnimations) {
             return;
         }
-        loadResources.createAnimations = false;
+        loadResources.createRuntimeAnimations = false;
 
         model._runtime.animations = {
         };
 
-        var gltf = model.gltf;
-        var nodes = gltf.nodes;
-        var animations = gltf.animations;
-        var accessors = gltf.accessors;
+        var runtimeNodes = model._runtime.nodes;
+        var animations = model.gltf.animations;
+        var accessors = model.gltf.accessors;
         var name;
 
          for (var animationName in animations) {
@@ -743,7 +778,7 @@ define([
 
                      var spline = ModelCache.getAnimationSpline(model, animationName, animation, channel.sampler, sampler, parameterValues);
                      // TODO: Support other targets when glTF does: https://github.com/KhronosGroup/glTF/issues/142
-                     channelEvaluators[i] = getChannelEvaluator(nodes[target.id].czm, target.path, spline);
+                     channelEvaluators[i] = getChannelEvaluator(runtimeNodes[target.id], target.path, spline);
                  }
 
                  model._runtime.animations[animationName] = {
@@ -758,59 +793,55 @@ define([
     function createVertexArrays(model, context) {
         var loadResources = model._loadResources;
 
-         if (!loadResources.finishedBufferViewsCreation() || !loadResources.finishedProgramCreation()) {
-             return;
-         }
+        if (!loadResources.finishedBuffersCreation() || !loadResources.finishedProgramCreation()) {
+            return;
+        }
 
-         if (!loadResources.createVertexArrays) {
-             return;
-         }
-         loadResources.createVertexArrays = false;
+        if (!loadResources.createVertexArrays) {
+            return;
+        }
+        loadResources.createVertexArrays = false;
 
-         var gltf = model.gltf;
-         var bufferViews = gltf.bufferViews;
-         var accessors = gltf.accessors;
-         var meshes = gltf.meshes;
-         var name;
+        var rendererBuffers = model._rendererResources.buffers;
+        var rendererVertexArrays = model._rendererResources.vertexArrays;
+        var gltf = model.gltf;
+        var accessors = gltf.accessors;
+        var meshes = gltf.meshes;
 
-         for (name in meshes) {
-             if (meshes.hasOwnProperty(name)) {
-                 var primitives = meshes[name].primitives;
+        for (var meshName in meshes) {
+            if (meshes.hasOwnProperty(meshName)) {
+                var primitives = meshes[meshName].primitives;
+                var primitivesLength = primitives.length;
 
-                 for (name in primitives) {
-                     if (primitives.hasOwnProperty(name)) {
-                         var primitive = primitives[name];
+                for (var i = 0; i < primitivesLength; ++i) {
+                    var primitive = primitives[i];
 
-                         var attributeLocations = getAttributeLocations(model, primitive);
-                         var attrs = [];
-                         var primitiveAttributes = primitive.attributes;
-                         for (name in primitiveAttributes) {
-                             if (primitiveAttributes.hasOwnProperty(name)) {
-                                 var a = accessors[primitiveAttributes[name]];
+                    var attributeLocations = getAttributeLocations(model, primitive);
+                    var attrs = [];
+                    var primitiveAttributes = primitive.attributes;
+                    for (var attrName in primitiveAttributes) {
+                        if (primitiveAttributes.hasOwnProperty(attrName)) {
+                            var a = accessors[primitiveAttributes[attrName]];
 
-                                 var type = ModelTypes[a.type];
-                                 attrs.push({
-                                     index                  : attributeLocations[name],
-                                     vertexBuffer           : bufferViews[a.bufferView].czm.webglBuffer,
-                                     componentsPerAttribute : type.componentsPerAttribute,
-                                     componentDatatype      : type.componentDatatype,
-                                     normalize              : false,
-                                     offsetInBytes          : a.byteOffset,
-                                     strideInBytes          : a.byteStride
-                                 });
-                             }
-                         }
+                            var type = ModelTypes[a.type];
+                            attrs.push({
+                                index                  : attributeLocations[attrName],
+                                vertexBuffer           : rendererBuffers[a.bufferView],
+                                componentsPerAttribute : type.componentsPerAttribute,
+                                componentDatatype      : type.componentDatatype,
+                                normalize              : false,
+                                offsetInBytes          : a.byteOffset,
+                                strideInBytes          : a.byteStride
+                            });
+                        }
+                    }
 
-                         var i = accessors[primitive.indices];
-                         var indexBuffer = bufferViews[i.bufferView].czm.webglBuffer;
-
-                         primitive.czm = {
-                             vertexArray : context.createVertexArray(attrs, indexBuffer)
-                         };
-                     }
-                 }
-             }
-         }
+                    var accessor = accessors[primitive.indices];
+                    var indexBuffer = rendererBuffers[accessor.bufferView];
+                    rendererVertexArrays[meshName + '.primitive.' + i] = context.createVertexArray(attrs, indexBuffer);
+                }
+            }
+        }
     }
 
     function createRenderStates(model, context) {
@@ -818,7 +849,7 @@ define([
 
         if (loadResources.createRenderStates) {
             loadResources.createRenderStates = false;
-
+            var rendererRenderStates = model._rendererResources.renderStates;
             var techniques = model.gltf.techniques;
             for (var name in techniques) {
                 if (techniques.hasOwnProperty(name)) {
@@ -826,18 +857,16 @@ define([
                     var pass = technique.passes[technique.pass];
                     var states = pass.states;
 
-                    states.czm = {
-                        renderState : context.createRenderState({
-                            cull : {
-                                enabled : !!states.cullFaceEnable
-                            },
-                            depthTest : {
-                                enabled : !!states.depthTestEnable
-                            },
-                            depthMask : !!states.depthMask,
-                            blending : !!states.blendEnable ? BlendingState.ALPHA_BLEND : BlendingState.DISABLED
-                        })
-                    };
+                    rendererRenderStates[name] = context.createRenderState({
+                        cull : {
+                            enabled : !!states.cullFaceEnable
+                        },
+                        depthTest : {
+                            enabled : !!states.depthTestEnable
+                        },
+                        depthMask : !!states.depthMask,
+                        blending : !!states.blendEnable ? BlendingState.ALPHA_BLEND : BlendingState.DISABLED
+                    });
                 }
             }
         }
@@ -845,82 +874,78 @@ define([
 
     var gltfSemanticUniforms = {
 // TODO: All semantics from https://github.com/KhronosGroup/glTF/issues/83
-        MODEL : function(uniformState, jointMatrices) {
+        MODEL : function(uniformState) {
             return function() {
                 return uniformState.getModel();
             };
         },
-        VIEW : function(uniformState, jointMatrices) {
+        VIEW : function(uniformState) {
             return function() {
                 return uniformState.getView();
             };
         },
-        PROJECTION : function(uniformState, jointMatrices) {
+        PROJECTION : function(uniformState) {
             return function() {
                 return uniformState.getProjection();
             };
         },
-        MODELVIEW : function(uniformState, jointMatrices) {
+        MODELVIEW : function(uniformState) {
             return function() {
                 return uniformState.getModelView();
             };
         },
-        VIEWPROJECTION : function(uniformState, jointMatrices) {
+        VIEWPROJECTION : function(uniformState) {
             return function() {
                 return uniformState.getViewProjection();
             };
         },
-        MODELVIEWPROJECTION : function(uniformState, jointMatrices) {
+        MODELVIEWPROJECTION : function(uniformState) {
             return function() {
                 return uniformState.getModelViewProjection();
             };
         },
-        MODELINVERSE : function(uniformState, jointMatrices) {
+        MODELINVERSE : function(uniformState) {
             return function() {
                 return uniformState.getInverseModel();
             };
         },
-        VIEWINVERSE : function(uniformState, jointMatrices) {
+        VIEWINVERSE : function(uniformState) {
             return function() {
                 return uniformState.getInverseView();
             };
         },
-        PROJECTIONINVERSE : function(uniformState, jointMatrices) {
+        PROJECTIONINVERSE : function(uniformState) {
             return function() {
                 return uniformState.getInverseProjection();
             };
         },
-        MODELVIEWINVERSE : function(uniformState, jointMatrices) {
+        MODELVIEWINVERSE : function(uniformState) {
             return function() {
                 return uniformState.getInverseModelView();
             };
         },
-        VIEWPROJECTIONINVERSE : function(uniformState, jointMatrices) {
+        VIEWPROJECTIONINVERSE : function(uniformState) {
             return function() {
                 return uniformState.getInverseViewProjection();
             };
         },
-        MODELVIEWINVERSETRANSPOSE : function(uniformState, jointMatrices) {
+        MODELVIEWINVERSETRANSPOSE : function(uniformState) {
             return function() {
                 return uniformState.getNormal();
             };
-        },
-        JOINT_MATRIX : function(uniformState, jointMatrices) {
-            return function() {
-                return jointMatrices;
-            };
         }
+        // JOINT_MATRIX created in createCommands()
     };
 
     ///////////////////////////////////////////////////////////////////////////
 
-    function getScalarUniformFunction(value, gltf) {
+    function getScalarUniformFunction(value, model) {
         return function() {
             return value;
         };
     }
 
-    function getVec2UniformFunction(value, gltf) {
+    function getVec2UniformFunction(value, model) {
         var v = Cartesian2.fromArray(value);
 
         return function() {
@@ -928,7 +953,7 @@ define([
         };
     }
 
-    function getVec3UniformFunction(value, gltf) {
+    function getVec3UniformFunction(value, model) {
         var v = Cartesian3.fromArray(value);
 
         return function() {
@@ -936,7 +961,7 @@ define([
         };
     }
 
-    function getVec4UniformFunction(value, gltf) {
+    function getVec4UniformFunction(value, model) {
         var v = Cartesian4.fromArray(value);
 
         return function() {
@@ -944,7 +969,7 @@ define([
         };
     }
 
-    function getMat2UniformFunction(value, gltf) {
+    function getMat2UniformFunction(value, model) {
         var v = Matrix2.fromColumnMajorArray(value);
 
         return function() {
@@ -952,7 +977,7 @@ define([
         };
     }
 
-    function getMat3UniformFunction(value, gltf) {
+    function getMat3UniformFunction(value, model) {
         var v = Matrix3.fromColumnMajorArray(value);
 
         return function() {
@@ -960,7 +985,7 @@ define([
         };
     }
 
-    function getMat4UniformFunction(value, gltf) {
+    function getMat4UniformFunction(value, model) {
         var v = Matrix4.fromColumnMajorArray(value);
 
         return function() {
@@ -968,9 +993,8 @@ define([
         };
     }
 
-    function getTextureUniformFunction(value, gltf) {
-        var texture = gltf.textures[value];
-        var tx = texture.czm.texture;
+    function getTextureUniformFunction(value, model) {
+        var tx = model._rendererResources.textures[value];
 
         return function() {
             return tx;
@@ -998,12 +1022,10 @@ define([
     gltfUniformFunctions[WebGLRenderingContext.SAMPLER_2D] = getTextureUniformFunction;
     // TODO: function for gltfUniformFunctions[WebGLRenderingContext.SAMPLER_CUBE].  https://github.com/KhronosGroup/glTF/issues/40
 
-    function getUniformFunctionFromSource(source, gltf) {
-        var nodes = gltf.nodes;
-        var czm = nodes[source].czm;
-
+    function getUniformFunctionFromSource(source, model) {
+        var runtimeNode = model._runtime.nodes[source];
         return function() {
-            return czm.computedMatrix;
+            return runtimeNode.computedMatrix;
         };
     }
 
@@ -1019,15 +1041,15 @@ define([
         }
         loadResources.createUniformMaps = false;
 
-        var name;
         var gltf = model.gltf;
         var materials = gltf.materials;
         var techniques = gltf.techniques;
         var programs = gltf.programs;
+        var rendererUniformMaps = model._rendererResources.uniformMaps;
 
-        for (name in materials) {
-            if (materials.hasOwnProperty(name)) {
-                var material = materials[name];
+        for (var materialName in materials) {
+            if (materials.hasOwnProperty(materialName)) {
+                var material = materials[materialName];
                 var instanceTechnique = material.instanceTechnique;
                 var instanceParameters = instanceTechnique.values;
                 var technique = techniques[instanceTechnique.technique];
@@ -1035,13 +1057,13 @@ define([
                 var pass = technique.passes[technique.pass];
                 var instanceProgram = pass.instanceProgram;
                 var uniforms = instanceProgram.uniforms;
-                var activeUniforms = programs[instanceProgram.program].czm.program.getAllUniforms();
+                var activeUniforms = model._rendererResources.programs[instanceProgram.program].getAllUniforms();
 
                 var parameterValues = {};
-                var jointMatrices = [];
+                var jointMatrixUniformName;
 
                 // Uniform parameters for this pass
-                for (name in uniforms) {
+                for (var name in uniforms) {
                     if (uniforms.hasOwnProperty(name)) {
                         // Only add active uniforms
                         if (defined(activeUniforms[name])) {
@@ -1052,22 +1074,29 @@ define([
 
                             if (defined(instanceParameters[parameterName])) {
                                 // Parameter overrides by the instance technique
-                                func = gltfUniformFunctions[parameter.type](instanceParameters[parameterName], gltf);
+                                func = gltfUniformFunctions[parameter.type](instanceParameters[parameterName], model);
                             } else if (defined(parameter.semantic)) {
 // TODO: account for parameter.type with semantic
-                                // Map glTF semantic to Cesium automatic uniform
-                                func = gltfSemanticUniforms[parameter.semantic](context.getUniformState(), jointMatrices);
+                                if (parameter.semantic !== 'JOINT_MATRIX') {
+                                    // Map glTF semantic to Cesium automatic uniform
+                                    func = gltfSemanticUniforms[parameter.semantic](context.getUniformState());
+                                } else {
+                                    func = undefined;
+                                    jointMatrixUniformName = name;
+                                }
                             } else if (defined(parameter.source)) {
-                                func = getUniformFunctionFromSource(parameter.source, gltf);
+                                func = getUniformFunctionFromSource(parameter.source, model);
                             } else if (defined(parameter.value)) {
                                 // Default technique value that may be overridden by a material
-                                func = gltfUniformFunctions[parameter.type](parameter.value, gltf);
+                                func = gltfUniformFunctions[parameter.type](parameter.value, model);
                             }
 
-                            parameterValues[parameterName] = {
-                                uniformName : name,
-                                func : func
-                            };
+                            if (defined(func)) {
+                                parameterValues[parameterName] = {
+                                    uniformName : name,
+                                    func : func
+                                };
+                            }
                         }
                     }
                 }
@@ -1081,9 +1110,9 @@ define([
                     }
                 }
 
-                instanceTechnique.czm = {
+                rendererUniformMaps[materialName] = {
                     uniformMap : uniformMap,
-                    jointMatrices : jointMatrices
+                    jointMatrixUniformName : jointMatrixUniformName
                 };
             }
         }
@@ -1095,10 +1124,13 @@ define([
         };
     }
 
-    function createCommand(model, node, context) {
-        node.czm.meshesCommands = defaultValue(node.czm.meshesCommands, {});
-        var czmMeshesCommands = node.czm.meshesCommands;
+    function createJointMatricesFunction(runtimeNode) {
+        return function() {
+            return runtimeNode.jointMatrices;
+        };
+    }
 
+    function createCommand(model, gltfNode, runtimeNode, context) {
         var opaqueColorCommands = model._commandLists.opaqueList;
         var translucentColorCommands = model._commandLists.translucentList;
 
@@ -1109,16 +1141,20 @@ define([
 
         var debugShowBoundingVolume = model.debugShowBoundingVolume;
 
-        var gltf = model.gltf;
+        var resources = model._rendererResources;
+        var rendererVertexArrays = resources.vertexArrays;
+        var rendererPrograms = resources.programs;
+        var rendererPickPrograms = resources.pickPrograms;
+        var rendererRenderStates = resources.renderStates;
+        var rendererUniformMaps = resources.uniformMaps;
 
+        var gltf = model.gltf;
         var accessors = gltf.accessors;
         var gltfMeshes = gltf.meshes;
-
-        var programs = gltf.programs;
         var techniques = gltf.techniques;
         var materials = gltf.materials;
 
-        var meshes = defined(node.meshes) ? node.meshes : node.instanceSkin.sources;
+        var meshes = defined(gltfNode.meshes) ? gltfNode.meshes : gltfNode.instanceSkin.sources;
         var meshesLength = meshes.length;
 
         for (var j = 0; j < meshesLength; ++j) {
@@ -1130,8 +1166,6 @@ define([
             // The glTF node hierarchy is a DAG so a node can have more than one
             // parent, so a node may already have commands.  If so, append more
             // since they will have a different model matrix.
-            czmMeshesCommands[name] = defaultValue(czmMeshesCommands[name], []);
-            var meshesCommands = czmMeshesCommands[name];
 
             for (var i = 0; i < length; ++i) {
                 var primitive = primitives[i];
@@ -1148,17 +1182,26 @@ define([
                     boundingSphere = BoundingSphere.fromCornerPoints(Cartesian3.fromArray(a.min), Cartesian3.fromArray(a.max));
                 }
 
-                var vertexArray = primitive.czm.vertexArray;
+                var vertexArray = rendererVertexArrays[name + '.primitive.' + i];
                 var count = ix.count;
                 var offset = (ix.byteOffset / IndexDatatype.getSizeInBytes(ix.type));  // glTF has offset in bytes.  Cesium has offsets in indices
-                var uniformMap = instanceTechnique.czm.uniformMap;
+
+                var um = rendererUniformMaps[primitive.material];
+                var uniformMap = um.uniformMap;
+                if (defined(um.jointMatrixUniformName)) {
+                    var jointUniformMap = {};
+                    jointUniformMap[um.jointMatrixUniformName] = createJointMatricesFunction(runtimeNode);
+
+                    uniformMap = combine([uniformMap, jointUniformMap], false, false);
+                }
+
                 var isTranslucent = pass.states.blendEnable; // TODO: Offical way to test this: https://github.com/KhronosGroup/glTF/issues/105
-                var rs = pass.states.czm.renderState;
+                var rs = rendererRenderStates[instanceTechnique.technique];
                 var owner = {
                     primitive : model,
                     id : model.id,
                     gltf : {
-                        node : node,
+                        node : gltfNode,
                         mesh : mesh,
                         primitive : primitive,
                         primitiveIndex : i
@@ -1172,7 +1215,7 @@ define([
                 command.vertexArray = vertexArray;
                 command.count = count;
                 command.offset = offset;
-                command.shaderProgram = programs[instanceProgram.program].czm.program;
+                command.shaderProgram = rendererPrograms[instanceProgram.program];
                 command.uniformMap = uniformMap;
                 command.renderState = rs;
                 command.owner = owner;
@@ -1201,7 +1244,7 @@ define([
                     pickCommand.vertexArray = vertexArray;
                     pickCommand.count = count;
                     pickCommand.offset = offset;
-                    pickCommand.shaderProgram = programs[instanceProgram.program].czm.pickProgram;
+                    pickCommand.shaderProgram = rendererPickPrograms[instanceProgram.program];
                     pickCommand.uniformMap = pickUniformMap;
                     pickCommand.renderState = rs;
                     pickCommand.owner = owner;
@@ -1212,7 +1255,7 @@ define([
                     }
                 }
 
-                meshesCommands.push({
+                runtimeNode.commands.push({
                     command : command,
                     pickCommand : pickCommand,
                     boundingSphere : boundingSphere
@@ -1221,19 +1264,20 @@ define([
         }
     }
 
-    function createCommands(model, context) {
+    function createRuntimeNodes(model, context) {
         var loadResources = model._loadResources;
 
         if (!loadResources.finishedPendingLoads() || !loadResources.finishedResourceCreation()) {
             return;
         }
 
-        if (!loadResources.createCommands) {
+        if (!loadResources.createRuntimeNodes) {
             return;
         }
-        loadResources.createCommands = false;
+        loadResources.createRuntimeNodes = false;
 
-        // Create commands for nodes in the default scene.
+        var rootNodes = [];
+        var runtimeNodes = model._runtime.nodes;
 
         var gltf = model.gltf;
         var nodes = gltf.nodes;
@@ -1243,24 +1287,64 @@ define([
         var length = sceneNodes.length;
 
         var stack = [];
+        var axis = new Cartesian3();
+
+        var matrix;
+        var translation;
+        var rotation;
+        var scale;
 
         for (var i = 0; i < length; ++i) {
-            stack.push(nodes[sceneNodes[i]]);
+            stack.push({
+                parentRuntimeNode : undefined,
+                gltfNode : nodes[sceneNodes[i]],
+                id : sceneNodes[i]
+            });
 
             while (stack.length > 0) {
-                var node = stack.pop();
+                var n = stack.pop();
+                var parentRuntimeNode = n.parentRuntimeNode;
+                var gltfNode = n.gltfNode;
 
-                if (defined(node.meshes) || defined(node.instanceSkin)) {
-                    createCommand(model, node, context);
+                // Node hierarchy is a DAG so a node can have more than one parent so it may already exist
+                var runtimeNode = runtimeNodes[n.id];
+                if (runtimeNode.parents.length === 0) {
+                    if (defined(gltfNode.matrix)) {
+                        runtimeNode.matrix = Matrix4.fromColumnMajorArray(gltfNode.matrix);
+                    } else {
+                        // TRS converted to Cesium types
+                        axis = Cartesian3.fromArray(gltfNode.rotation, 0, axis);
+                        runtimeNode.translation = Cartesian3.fromArray(gltfNode.translation);
+                        runtimeNode.rotation = Quaternion.fromAxisAngle(axis, gltfNode.rotation[3]);
+                        runtimeNode.scale = Cartesian3.fromArray(gltfNode.scale);
+                    }
                 }
 
-                var children = node.children;
+                if (defined(parentRuntimeNode)) {
+                    parentRuntimeNode.children.push(runtimeNode);
+                    runtimeNode.parents.push(parentRuntimeNode);
+                } else {
+                    rootNodes.push(runtimeNode);
+                }
+
+                if (defined(gltfNode.meshes) || defined(gltfNode.instanceSkin)) {
+                    createCommand(model, gltfNode, runtimeNode, context);
+                }
+
+                var children = gltfNode.children;
                 var childrenLength = children.length;
                 for (var k = 0; k < childrenLength; ++k) {
-                    stack.push(nodes[children[k]]);
+                    stack.push({
+                        parentRuntimeNode : runtimeNode,
+                        gltfNode : nodes[children[k]],
+                        id : children[k]
+                    });
                 }
             }
         }
+
+        model._runtime.rootNodes = rootNodes;
+        model._runtime.nodes = runtimeNodes;
     }
 
     var createResourcesWtf = WTF.trace.events.createScope('model-createResources');
@@ -1274,12 +1358,11 @@ define([
         createTextures(model, context);
 
         createSkins(model);
-        createAnimations(model);
+        createRuntimeAnimations(model);
         createVertexArrays(model, context); // using glTF meshes
         createRenderStates(model, context); // using glTF materials/techniques/passes/states
         createUniformMaps(model, context);  // using glTF materials/techniques/passes/instanceProgram
-
-        createCommands(model, context);     // using glTF scene
+        createRuntimeNodes(model, context); // using glTF scene
 
         return WTF.trace.leaveScope(scope);
     }
@@ -1288,29 +1371,26 @@ define([
 
     function getNodeMatrix(node, result) {
         if (defined(node.matrix)) {
-            return Matrix4.fromColumnMajorArray(node.matrix, result);
+            result = node.matrix;
+            return node.matrix;
         }
 
-        var czm = node.czm;
-        return Matrix4.fromTranslationQuaternionRotationScale(czm.translation, czm.rotation, czm.scale, result);
+        return Matrix4.fromTranslationQuaternionRotationScale(node.translation, node.rotation, node.scale, result);
     }
 
- // To reduce allocations in updateModelMatrix()
+    // To reduce allocations in updateModelMatrix()
     var scratchNodeStack = [];
 
     var scratchSphereCenter = new Cartesian3();
     var scratchSpheres = [];
     var scratchSubtract = new Cartesian3();
 
-    function updateModelMatrix(model) {
+    function updateModelMatrix(model, modelTransformChanged, justLoaded) {
         var allowPicking = model.allowPicking;
         var gltf = model.gltf;
-        var scenes = gltf.scenes;
-        var nodes = gltf.nodes;
 
-        var scene = scenes[gltf.scene];
-        var sceneNodes = scene.nodes;
-        var length = sceneNodes.length;
+        var rootNodes = model._runtime.rootNodes;
+        var length = rootNodes.length;
 
         var nodeStack = scratchNodeStack;
         var computedModelMatrix = model._computedModelMatrix;
@@ -1321,76 +1401,90 @@ define([
         var spheres = scratchSpheres;
 
         for (var i = 0; i < length; ++i) {
-            var n = nodes[sceneNodes[i]];
+            var n = rootNodes[i];
 
-            getNodeMatrix(n, n.czm.transformToRoot);
+            n.transformToRoot = getNodeMatrix(n);
             nodeStack.push(n);
 
             while (nodeStack.length > 0) {
                 n = nodeStack.pop();
-                var transformToRoot = n.czm.transformToRoot;
-                var meshCommands = n.czm.meshesCommands;
+                var transformToRoot = n.transformToRoot;
+                var commands = n.commands;
 
-                if (defined(meshCommands)) {
-                    // Node has meshes.  Update their commands.
+                // This nodes transform needs to be updated if
+                // - It was targeted for animation this frame, or
+                // - Any of its ancestors were targeted for animation this frame
+                var dirty = (n.dirty || n.anyAncestorDirty);
 
-                    var name;
-                    for (name in meshCommands) {
-                        if (meshCommands.hasOwnProperty(name)) {
-                            var meshCommand = meshCommands[name];
-                            var meshCommandLength = meshCommand.length;
-                            for (var j = 0 ; j < meshCommandLength; ++j) {
-                                var primitiveCommand = meshCommand[j];
-                                var command = primitiveCommand.command;
-                                Matrix4.multiply(computedModelMatrix, transformToRoot, command.modelMatrix);
-                                BoundingSphere.transform(primitiveCommand.boundingSphere, command.modelMatrix, command.boundingVolume);
+                if (dirty || modelTransformChanged || justLoaded) {
+                    var commandsLength = commands.length;
+                    if (commandsLength > 0) {
+                        // Node has meshes, which has primitives.  Update their commands.
+                        for (var j = 0 ; j < commandsLength; ++j) {
+                            var primitiveCommand = commands[j];
+                            var command = primitiveCommand.command;
+                            Matrix4.multiplyTransformation(computedModelMatrix, transformToRoot, command.modelMatrix);
 
-                                if (allowPicking) {
-                                    var pickCommand = primitiveCommand.pickCommand;
-                                    Matrix4.clone(command.modelMatrix, pickCommand.modelMatrix);
-                                    BoundingSphere.clone(command.boundingVolume, pickCommand.boundingVolume);
-                                }
+                            // TODO: Use transformWithoutScale if no node up to the root has scale (included targeted scale from animation).
+                            // Preprocess this and store it with each node.
+                            BoundingSphere.transform(primitiveCommand.boundingSphere, command.modelMatrix, command.boundingVolume);
+                            //BoundingSphere.transformWithoutScale(primitiveCommand.boundingSphere, command.modelMatrix, command.boundingVolume);
 
-                                Cartesian3.add(command.boundingVolume.center, scratchSphereCenter, scratchSphereCenter);
-                                spheres.push(command.boundingVolume);
+                            if (allowPicking) {
+                                var pickCommand = primitiveCommand.pickCommand;
+                                Matrix4.clone(command.modelMatrix, pickCommand.modelMatrix);
+                                BoundingSphere.clone(command.boundingVolume, pickCommand.boundingVolume);
                             }
+
+                            Cartesian3.add(command.boundingVolume.center, scratchSphereCenter, scratchSphereCenter);
+                            spheres.push(command.boundingVolume);
                         }
+                    } else {
+                        // Node has a light or camera
+                        n.computedMatrix = Matrix4.multiplyTransformation(computedModelMatrix, transformToRoot, n.computedMatrix);
                     }
-                } else {
-                    // Node has a light or camera
-                    n.czm.computedMatrix = Matrix4.multiply(computedModelMatrix, transformToRoot, n.czm.computedMatrix);
                 }
+
+                n.dirty = false;
+                n.anyAncestorDirty = false;
 
                 var children = n.children;
                 var childrenLength = children.length;
                 for (var k = 0; k < childrenLength; ++k) {
-                    var child = nodes[children[k]];
+                    var child = children[k];
 
-                    var childMatrix = getNodeMatrix(child, child.czm.transformToRoot);
-                    Matrix4.multiply(transformToRoot, childMatrix, child.czm.transformToRoot);
+                    if (dirty || justLoaded) {
+                        var childMatrix = getNodeMatrix(child, child.transformToRoot);
+                        Matrix4.multiplyTransformation(transformToRoot, childMatrix, child.transformToRoot);
+                    }
+
+                    child.anyAncestorDirty = dirty;
                     nodeStack.push(child);
                 }
             }
         }
 
-        // Compute bounding sphere around the model
-        var radiusSquared = 0;
-        var index = 0;
+        if (spheres.length > 0) {
+            // Compute bounding sphere around the model
+            var radiusSquared = 0;
+            var index = 0;
 
-        length = spheres.length;
-        Cartesian3.divideByScalar(scratchSphereCenter, length, scratchSphereCenter);
-        for (i = 0; i < length; ++i) {
-            var bbs = spheres[i];
-            var r = Cartesian3.magnitudeSquared(Cartesian3.subtract(bbs.center, scratchSphereCenter, scratchSubtract));
+            length = spheres.length;
+            Cartesian3.divideByScalar(scratchSphereCenter, length, scratchSphereCenter);
+            for (i = 0; i < length; ++i) {
+                var bbs = spheres[i];
+                var r = Cartesian3.magnitudeSquared(Cartesian3.subtract(bbs.center, scratchSphereCenter, scratchSubtract));
 
-            if (r > radiusSquared) {
-                radiusSquared = r;
-                index = i;
+                if (r > radiusSquared) {
+                    radiusSquared = r;
+                    index = i;
+                }
             }
-        }
 
-        Cartesian3.clone(scratchSphereCenter, model.worldBoundingSphere.center);
-        model.worldBoundingSphere.radius = Math.sqrt(radiusSquared) + spheres[index].radius;
+            // TODO: world bounding sphere is wrong unless all nodes are dirty.
+            Cartesian3.clone(scratchSphereCenter, model.worldBoundingSphere.center);
+            model.worldBoundingSphere.radius = Math.sqrt(radiusSquared) + spheres[index].radius;
+        }
     }
 
     var scratchObjectSpace = new Matrix4();
@@ -1400,48 +1494,28 @@ define([
     function applySkins(model) {
         var scope = applySkinsWtf();
 
-        var gltf = model.gltf;
-        var skins = gltf.skins;
-        var nodes = gltf.nodes;
-        var meshes = gltf.meshes;
-        var materials = gltf.materials;
-        var techniques = gltf.techniques;
-
-        var skinnedNodes = model._skinnedNodes;
+        var skinnedNodes = model._runtime.skinnedNodes;
         var length = skinnedNodes.length;
 
         for (var i = 0; i < length; ++i) {
             var node = skinnedNodes[i];
 
-            scratchObjectSpace = Matrix4.inverse(node.czm.transformToRoot);
+            scratchObjectSpace = Matrix4.inverseTransformation(node.transformToRoot, scratchObjectSpace);
 
-            var instanceSkin = skinnedNodes[i].instanceSkin;
-            var skin = skins[instanceSkin.skin];
-
-            var joints = skin.joints;
-            var bindShapeMatrix = skin.czm.bindShapeMatrix;
-            var inverseBindMatrices = skin.czm.inverseBindMatrices;
+            var jointMatrices = node.jointMatrices;
+            var joints = node.skeletons;
+            var skin = node.skin;
+            var bindShapeMatrix = skin.bindShapeMatrix;
+            var inverseBindMatrices = skin.inverseBindMatrices;
             var inverseBindMatricesLength = inverseBindMatrices.length;
 
-            var nodeNeshes = instanceSkin.sources;
-            var meshesLength = nodeNeshes.length;
-            for (var j = 0; j < meshesLength; ++j) {
-                var mesh = meshes[nodeNeshes[j]];
-
-                var primitives = mesh.primitives;
-                var primitivesLength = primitives.length;
-                for (var k = 0; k < primitivesLength; ++k) {
-                    var jointMatrices = materials[primitives[k].material].instanceTechnique.czm.jointMatrices;
-                    for (var m = 0; m < inverseBindMatricesLength; ++m) {
-
-                        // [joint-matrix] = [node-to-root^-1][joint-to-root][inverse-bind][bind-shape]
-                        jointMatrices[m] = Matrix4.multiply(scratchObjectSpace, nodes[joints[m]].czm.transformToRoot, jointMatrices[m]);
-                        jointMatrices[m] = Matrix4.multiply(jointMatrices[m], inverseBindMatrices[m], jointMatrices[m]);
-                        if (defined(bindShapeMatrix)) {
-                            // Optimization for when bind shape matrix is the identity.
-                            jointMatrices[m] = Matrix4.multiply(jointMatrices[m], bindShapeMatrix, jointMatrices[m]);
-                        }
-                    }
+            for (var m = 0; m < inverseBindMatricesLength; ++m) {
+                // [joint-matrix] = [node-to-root^-1][joint-to-root][inverse-bind][bind-shape]
+                jointMatrices[m] = Matrix4.multiplyTransformation(scratchObjectSpace, joints[m].transformToRoot, jointMatrices[m]);
+                jointMatrices[m] = Matrix4.multiplyTransformation(jointMatrices[m], inverseBindMatrices[m], jointMatrices[m]);
+                if (defined(bindShapeMatrix)) {
+                    // Optimization for when bind shape matrix is the identity.
+                    jointMatrices[m] = Matrix4.multiplyTransformation(jointMatrices[m], bindShapeMatrix, jointMatrices[m]);
                 }
             }
         }
@@ -1524,15 +1598,16 @@ define([
 
         if (this._state === ModelState.LOADED) {
             var animated = this.animations.update(frameState);
+            var modelTransformChanged = !Matrix4.equals(this._modelMatrix, this.modelMatrix) || (this._scale !== this.scale);
 
             // Update modelMatrix throughout the tree as needed
-            if (animated || !Matrix4.equals(this._modelMatrix, this.modelMatrix) || (this._scale !== this.scale) || justLoaded) {
+            if (animated || modelTransformChanged || justLoaded) {
                 Matrix4.clone(this.modelMatrix, this._modelMatrix);
                 this._scale = this.scale;
                 Matrix4.multiplyByUniformScale(this.modelMatrix, this.scale, this._computedModelMatrix);
 
                 var updateModelMatrixScope = updateModelMatrixWtf();
-                updateModelMatrix(this);
+                updateModelMatrix(this, modelTransformChanged, justLoaded);
                 WTF.trace.leaveScope(updateModelMatrixScope);
 
                 if (animated || justLoaded) {
@@ -1573,13 +1648,10 @@ define([
         return false;
     };
 
-    function destroyCzm(property, resourceName) {
+    function destroy(property) {
         for (var name in property) {
             if (property.hasOwnProperty(name)) {
-                var czm = property[name].czm;
-                if (defined(czm) && defined(czm[resourceName])) {
-                    czm[resourceName] = czm[resourceName].destroy();
-                }
+                property[name].destroy();
             }
         }
     }
@@ -1604,29 +1676,14 @@ define([
      * model = model && model.destroy();
      */
     Model.prototype.destroy = function() {
-        var gltf = this.gltf;
-        destroyCzm(gltf.bufferViews, 'webglBuffer');
-        destroyCzm(gltf.programs, 'program');
-        destroyCzm(gltf.programs, 'pickProgram');
-        destroyCzm(gltf.textures, 'texture');
-
-        var meshes = gltf.meshes;
-        var name;
-
-        for (name in meshes) {
-            if (meshes.hasOwnProperty(name)) {
-                var primitives = meshes[name].primitives;
-
-                for (name in primitives) {
-                    if (primitives.hasOwnProperty(name)) {
-                        var czm = primitives[name].czm;
-                        if (defined(czm) && defined(czm.vertexArray)) {
-                            czm.vertexArray = czm.vertexArray.destroy();
-                        }
-                    }
-                }
-            }
-        }
+        var resources = this._rendererResources;
+        destroy(resources.buffers);
+        destroy(resources.vertexArrays);
+        destroy(resources.programs);
+        destroy(resources.pickPrograms);
+        destroy(resources.textures);
+        resources = undefined;
+        this._rendererResources = undefined;
 
         var pickIds = this._pickIds;
         var length = pickIds.length;
