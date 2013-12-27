@@ -497,8 +497,8 @@ define([
     var scratchCullingVolume = new CullingVolume();
     var distances = new Interval();
 
-    var createPotentiallyVisibleSetWtf = WTF.trace.events.createScope('createPotentiallyVisibleSet');
-    var commandsWtf = WTF.trace.events.createInstance('Scene_createPotentiallyVisibleSet(uint32 totalcommands, uint32 visiblecommands)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
+    var createPotentiallyVisibleSetWtf = WTF.trace.events.createScope('scene-createPotentiallyVisibleSet');
+    var commandsWtf = WTF.trace.events.createInstance('scene-createPotentiallyVisibleSet-func(uint32 totalcommands, uint32 visiblecommands)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
 
     function createPotentiallyVisibleSet(scene, listNames, pick) {
         var scope = createPotentiallyVisibleSetWtf();
@@ -728,9 +728,9 @@ define([
                    (!defined(occluder) || occluder.isBoundingSphereVisible(boundingVolume)))));
     }
 
-    var executeCommandsWtf = WTF.trace.events.createScope('executeCommands');
-    var executeCommandsFrustumWtf = WTF.trace.events.createScope('frustum');
-    var executeCommandsFrustumStatsWtf = WTF.trace.events.createInstance('executeCommands_frustum(uint32 commands)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
+    var executeCommandsWtf = WTF.trace.events.createScope('scene-executeCommands');
+    var executeCommandsFrustumWtf = WTF.trace.events.createScope('scene-frustum');
+    var executeCommandsFrustumStatsWtf = WTF.trace.events.createInstance('scene-executeCommands-frustum-func(uint32 commands)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
 
     var scratchPerspectiveFrustum = new PerspectiveFrustum();
     var scratchPerspectiveOffCenterFrustum = new PerspectiveOffCenterFrustum();
@@ -835,7 +835,7 @@ define([
         return WTF.trace.leaveScope(scope);
     }
 
-    var executeOverlayCommandsWtf = WTF.trace.events.createScope('executeOverlayCommands');
+    var executeOverlayCommandsWtf = WTF.trace.events.createScope('scene-executeOverlayCommands');
 
     function executeOverlayCommands(scene, passState) {
         var scope = executeOverlayCommandsWtf();
@@ -854,7 +854,7 @@ define([
         return WTF.trace.leaveScope(scope);
     }
 
-    var updatePrimitivesWtf = WTF.trace.events.createScope('updatePrimitives');
+    var updatePrimitivesWtf = WTF.trace.events.createScope('scene-updatePrimitives');
 
     function updatePrimitives(scene) {
         var scope = updatePrimitivesWtf();

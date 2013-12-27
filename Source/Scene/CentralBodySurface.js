@@ -124,7 +124,7 @@ define([
     };
 
     var centralBodySurfaceWtf = WTF.trace.events.createScope('CentralBodySurface#update');
-    var statsWtf = WTF.trace.events.createInstance('CentralBodySurface_update(uint32 maxDepth, uint32 tilesVisited, uint32 tilesCulled, uint32 tilesRendered, uint32 texturesRendered, uint32 tilesWaitingForChildren)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
+    var statsWtf = WTF.trace.events.createInstance('CentralBodySurface#update-func(uint32 maxDepth, uint32 tilesVisited, uint32 tilesCulled, uint32 tilesRendered, uint32 texturesRendered, uint32 tilesWaitingForChildren)', WTF.data.EventFlag.APPEND_SCOPE_DATA);
 
     CentralBodySurface.prototype.update = function(context, frameState, colorCommandList, centralBodyUniformMap, shaderSet, renderState, projection) {
         var scope = centralBodySurfaceWtf();
