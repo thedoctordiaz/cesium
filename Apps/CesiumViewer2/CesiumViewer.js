@@ -6,6 +6,7 @@ define([
         'Core/Cartesian3',
         'Core/Matrix3',
         'Core/Matrix4',
+        'Core/Quaternion',
         'Core/Cartographic',
         'Core/Transforms',
         'Core/Ellipsoid',
@@ -33,6 +34,7 @@ define([
         Cartesian3,
         Matrix3,
         Matrix4,
+        Quaternion,
         Cartographic,
         Transforms,
         Ellipsoid,
@@ -201,7 +203,7 @@ define([
         var rotateX = Matrix4.fromRotationTranslation(Matrix3.fromRotationX(CesiumMath.toRadians(90.0)), Cartesian3.ZERO);
         var modelMatrix = Matrix4.multiply(Transforms.eastNorthUpToFixedFrame(ellipsoid.cartographicToCartesian(Cartographic.fromDegrees(-123.0744619, 44.0503706, 100.0))), rotateX);
 
-        var model = scene.getPrimitives().add(Model.fromText({
+        var model = scene.getPrimitives().add(Model.fromGltf({
             url : defaultValue(endUserOptions.model, './Gallery/model/duck/duck.json'),
             modelMatrix : modelMatrix,
             scale : 10.0,
@@ -211,53 +213,54 @@ define([
         }));
 /*
         var animationStart = new Event();
-        animationStart.addEventListener(function() {
-            console.log('start animation');
+        animationStart.addEventListener(function(model, animation) {
+            console.log('start animation ' + animation.name);
         });
 
         var animationStop = new Event();
-        animationStop.addEventListener(function() {
-            console.log('stop animation');
+        animationStop.addEventListener(function(model, animation) {
+            console.log('stop animation ' + animation.name);
         });
 
         var animationUpdate = new Event();
-        animationUpdate.addEventListener(function() {
-            console.log('update animation');
+        animationUpdate.addEventListener(function(model, animation, time) {
+            console.log('update animation ' + animation.name + ' at time ' + time);
         });
 
-        model.animations.animationAdded.addEventListener(function(animation) {
+        model.activeAnimations.animationAdded.addEventListener(function(model, animation) {
             console.log('Added ' + animation.name);
         });
-        model.animations.animationRemoved.addEventListener(function(animation) {
+        model.activeAnimations.animationRemoved.addEventListener(function(model, animation) {
             console.log('Removed ' + animation.name);
         });
 */
         var statistics;
 
-        model.jsonLoad.addEventListener(function() {
+        model.readyToRender.addEventListener(function(model) {
             statistics = gltfStatistics(model.gltf);
             console.log(statistics);
-        });
-        model.readyToRender.addEventListener(function() {
+
+//            var node = model.getNode('LOD3sp');
+//            node.matrix = Matrix4.fromScale(new Cartesian3(5.0, 1.0, 1.0), node.matrix);
+
+//            node.matrix = undefined;
+//            node.translation = new Cartesian3();
+//            node.rotation = Quaternion.IDENTITY.clone();
+//            node.scale = new Cartesian3(5.0, 1.0, 1.0);
+
             if (endUserOptions.animate) {
-                var animations = model.gltf.animations;
-                for (var name in animations) {
-                    if (animations.hasOwnProperty(name)) {
-                        model.animations.add({
-                            name : name,
-                            // startTime : (new JulianDate()).addSeconds(3),
-                            // startOffset : 3.0,
-                            // stopTime : (new JulianDate()).addSeconds(4),
-                            // removeOnStop : true,
-                            speedup : 0.5, //1.0,
-                            wrap : ModelAnimationWrap.REPEAT, // ModelAnimationWrap.MIRRORED_REPEAT,
-                            // reverse : true,
-                            // start : animationStart,
-                            // stop : animationStop
-                            // , update : animationUpdate
-                        });
-                    }
-                }
+                model.activeAnimations.addAll({
+                    // startTime : (new JulianDate()).addSeconds(3),
+                    // startOffset : 3.0,
+                    // stopTime : (new JulianDate()).addSeconds(4),
+                    // removeOnStop : true,
+                    speedup : 0.5, //1.0,
+                    wrap : ModelAnimationWrap.REPEAT, // ModelAnimationWrap.MIRRORED_REPEAT,
+                    // reverse : true,
+                    start : animationStart,
+                    stop : animationStop
+                    // , update : animationUpdate
+                });
             }
 
             var center = model.worldBoundingSphere.center;
@@ -290,6 +293,7 @@ define([
                 if (defined(pick) && (pick.primitive === model)) {
                     var gltf = pick.gltf;
                     if ((prevPickedNode !== gltf.node) || (prevPickedMesh !== gltf.mesh) || (prevPickedPrimitiveIndex !== gltf.primitiveIndex)) {
+
                         prevPickedNode = gltf.node;
                         prevPickedMesh = gltf.mesh;
                         prevPickedPrimitiveIndex = gltf.primitiveIndex;

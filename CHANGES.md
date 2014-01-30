@@ -6,6 +6,7 @@ Beta Releases
 
 ### TODO
 
+* Added `Model` for drawing 3D models using glTF.
 * Added `czm_inverseViewProjection` and `czm_inverseModelViewProjection` automatic GLSL uniform.
 * Added `FrameState.previousTime`.
 

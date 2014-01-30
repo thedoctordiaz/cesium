@@ -6,7 +6,6 @@ define([
         '../Core/destroyObject',
         '../Core/DeveloperError',
         '../Core/RuntimeError',
-        '../Core/Enumeration',
         '../Core/loadArrayBuffer',
         '../Core/loadText',
         '../Core/loadImage',
@@ -34,6 +33,7 @@ define([
         './ModelTypes',
         './ModelCache',
         './ModelAnimationCollection',
+        './ModelNode',
         './SceneMode',
         './gltfDefaults',
         '../ThirdParty/wtf-trace'
@@ -44,7 +44,6 @@ define([
         destroyObject,
         DeveloperError,
         RuntimeError,
-        Enumeration,
         loadArrayBuffer,
         loadText,
         loadImage,
@@ -72,15 +71,16 @@ define([
         ModelTypes,
         ModelCache,
         ModelAnimationCollection,
+        ModelNode,
         SceneMode,
         gltfDefaults,
         WTF) {
     "use strict";
 
     var ModelState = {
-        NEEDS_LOAD : new Enumeration(0, 'NEEDS_LOAD'),
-        LOADING : new Enumeration(1, 'LOADING'),
-        LOADED : new Enumeration(2, 'LOADED')
+        NEEDS_LOAD : 0,
+        LOADING : 1,
+        LOADED : 2
     };
 
     function LoadResources() {
@@ -102,6 +102,8 @@ define([
         this.createRenderStates = true;
         this.createUniformMaps = true;
         this.createRuntimeNodes = true;
+
+        this.skinnedNodesNames = [];
     }
 
     LoadResources.prototype.finishedPendingLoads = function() {
@@ -128,26 +130,62 @@ define([
         return ((this.pendingTextureLoads === 0) && (this.texturesToCreate.length === 0));
     };
 
-// TODO: what data should we pass to all events?
-
     /**
-     * DOC_TBA
+     * A 3D model based on glTF, the runtime asset format for WebGL, OpenGL ES, and OpenGL.
+     * <p>
+     * Cesium includes support for geometry and materials, glTF animations, and glTF skinning.
+     * In addition, individual glTF nodes are pickable with {@link Scene#pick} and animatable
+     * with {@link Model#getNode}.  glTF cameras and lights are not currently supported.
+     * </p>
+     * <p>
+     * An external glTF asset is created with {@link Model#fromGltf}.  glTF JSON can also be
+     * created at runtime and passed to this constructor function.  In either case, the
+     * {@link Model#readyToRender} event is fired when the model is ready to render, i.e.,
+     * when the external binary, image, and shader files are downloaded and the WebGL
+     * resources are created.
+     * </p>
      *
      * @alias Model
      * @constructor
+     *
+     * @param {Object} [options.gltf=undefined] The object for the glTF JSON.
+     * @param {String} [options.basePath=''] The base path that paths in the glTF JSON are relative to.
+     * @param {Boolean} [options.show=true] Determines if the model primitive will be shown.
+     * @param {Matrix4} [options.modelMatrix=Matrix4.IDENTITY] The 4x4 transformation matrix that transforms the model from model to world coordinates.
+     * @param {Number} [options.scale=1.0] A uniform scale applied to this model.
+     * @param {Object} [options.allowPicking=true] When <code>true</code>, each glTF mesh and primitive is pickable with {@link Scene#pick}.
+     * @param {Event} [options.readyToRender=new Event()] The event fired when this model is ready to render.
+     * @param {Boolean} [options.debugShowBoundingVolume=false] For debugging only. Draws the bounding sphere for each {@link DrawCommand} in the model.
+     * @param {Boolean} [options.debugWireframe=false] For debugging only. Draws the model in wireframe.
+     *
+     * @see Model#fromGltf
+     * @see Model#readyToRender
      */
     var Model = function(options) {
         options = defaultValue(options, defaultValue.EMPTY_OBJECT);
 
         /**
-         * DOC_TBA
+         * The object for the glTF JSON, including properties with default values omitted
+         * from the JSON provided to this model.
+         *
+         * @type {Object}
+         *
+         * @default undefined
          *
          * @readonly
          */
         this.gltf = gltfDefaults(options.gltf);
 
         /**
-         * DOC_TBA
+         * The base path that paths in the glTF JSON are relative to.  The base
+         * path is the same path as the path containing the .json file
+         * minus the .json file, when binary, image, and shader files are
+         * in the same directory as the .json.  When this is <code>''</code>,
+         * the app's base path is used.
+         *
+         * @type {String}
+         *
+         * @default ''
          *
          * @readonly
          */
@@ -166,8 +204,7 @@ define([
          * The 4x4 transformation matrix that transforms the model from model to world coordinates.
          * When this is the identity matrix, the model is drawn in world coordinates, i.e., Earth's WGS84 coordinates.
          * Local reference frames can be used by providing a different transformation matrix, like that returned
-         * by {@link Transforms.eastNorthUpToFixedFrame}.  This matrix is available to GLSL vertex and fragment
-         * shaders via {@link czm_model} and derived uniforms.
+         * by {@link Transforms.eastNorthUpToFixedFrame}.
          *
          * @type {Matrix4}
          *
@@ -179,7 +216,6 @@ define([
          * m.modelMatrix = Transforms.eastNorthUpToFixedFrame(origin);
          *
          * @see Transforms.eastNorthUpToFixedFrame
-         * @see czm_model
          */
         this.modelMatrix = Matrix4.clone(defaultValue(options.modelMatrix, Matrix4.IDENTITY));
         this._modelMatrix = Matrix4.clone(this.modelMatrix);
@@ -209,7 +245,7 @@ define([
         this._id = options.id;
 
         /**
-         * DOC_TBA
+         * When <code>true</code>, each glTF mesh and primitive is pickable with {@link Scene#pick}.  When <code>false</code>, GPU memory is saved.         *
          *
          * @type {Boolean}
          *
@@ -220,14 +256,24 @@ define([
         this.allowPicking = defaultValue(options.allowPicking, true);
 
         /**
-         * DOC_TBA
+         * The event fired when this model is ready to render, i.e., when the external binary, image,
+         * and shader files were downloaded and the WebGL resources were created.
+         * <p>
+         * This is event is fired at the end of the frame before the first frame the model is rendered in.
+         * </p>
+         *
+         * @type {Event}
+         * @default undefined
+         *
+         * @example
+         * // Play all animations at half-speed when the model is ready to render
+         * model.readyToRender.addEventListener(function(model) {
+         *   model.activeAnimations.addAll({
+         *     speedup : 0.5
+         *   });
+         * });
          */
-        this.jsonLoad = new Event();
-
-        /**
-         * DOC_TBA
-         */
-        this.readyToRender = new Event();
+        this.readyToRender = defaultValue(options.readyToRender, new Event());
 
 // TODO: will change with animation
 // TODO: only load external files if within bounding sphere
@@ -238,17 +284,34 @@ define([
         this.worldBoundingSphere = new BoundingSphere();
 
         /**
-         * DOC_TBA
+         * The currently playing glTF animations.
+         *
+         * @type {ModelAnimationCollection}
          */
-        this.animations = new ModelAnimationCollection(this);
+        this.activeAnimations = new ModelAnimationCollection(this);
 
         /**
-         * DOC_TBA
+         * This property is for debugging only; it is not for production use nor is it optimized.
+         * <p>
+         * Draws the bounding sphere for each {@link DrawCommand} in the model.  A glTF primitive corresponds
+         * to one {@link DrawCommand}.  A glTF mesh has an array of primitives, often of length one.
+         * </p>
+         *
+         * @type {Boolean}
+         *
+         * @default false
          */
         this.debugShowBoundingVolume = defaultValue(options.debugShowBoundingVolume, false);
 
         /**
-         * DOC_TBA
+         * This property is for debugging only; it is not for production use nor is it optimized.
+         * <p>
+         * Draws the model in wireframe.
+         * </p>
+         *
+         * @type {Boolean}
+         *
+         * @default false
          */
         this.debugWireframe = defaultValue(options.debugWireframe, false);
         this._debugWireframe = false;
@@ -256,6 +319,8 @@ define([
         this._computedModelMatrix = new Matrix4(); // Derived from modelMatrix and scale
         this._state = ModelState.NEEDS_LOAD;
         this._loadResources = undefined;
+
+        this._cesiumAnimationsDirty = false;       // true when the Cesium API, not a glTF animation, changed a node transform
 
         this._runtime = {
             animations : undefined,
@@ -281,9 +346,55 @@ define([
     };
 
     /**
-     * DOC_TBA
+     * Creates a model from a glTF assets.  When the model is ready to render, i.e., when the external binary, image,
+     * and shader files are downloaded and the WebGL resources are created, the {@link Model#readyToRender} event is fired.
+     *
+     * @memberof Model
+     *
+     * @param {String} options.url The url to the glTF .json file.
+     * @param {Boolean} [options.show=true] Determines if the model primitive will be shown.
+     * @param {Matrix4} [options.modelMatrix=Matrix4.IDENTITY] The 4x4 transformation matrix that transforms the model from model to world coordinates.
+     * @param {Number} [options.scale=1.0] A uniform scale applied to this model.
+     * @param {Object} [options.allowPicking=true] When <code>true</code>, each glTF mesh and primitive is pickable with {@link Scene#pick}.
+     * @param {Event} [options.readyToRender=new Event()] The event fired when this model is ready to render.
+     * @param {Boolean} [options.debugShowBoundingVolume=false] For debugging only. Draws the bounding sphere for each {@link DrawCommand} in the model.
+     * @param {Boolean} [options.debugWireframe=false] For debugging only. Draws the model in wireframe.
+     *
+     * @returns {Model} The newly created model.
+     *
+     * @exception {DeveloperError} options.url is required.
+     *
+     * @example
+     * // Example 1. Create a model from a glTF asset
+     * var model = scene.getPrimitives().add(Model.fromGltf({
+     *   url : './duck/duck.json'
+     * }));
+     *
+     * // Example 2. Create model and provide all properties and events
+     * var origin = ellipsoid.cartographicToCartesian(
+     *   Cartographic.fromDegrees(-95.0, 40.0, 200000.0));
+     * var modelMatrix = Transforms.eastNorthUpToFixedFrame(origin);
+     *
+     * var readyToRender = new Event();
+     * readyToRender.addEventListener(function(model) {
+     *   // Play all animations when the model is ready to render
+     *   model.activeAnimations.addAll();
+     * });
+     *
+     * var model = scene.getPrimitives().add(Model.fromGltf({
+     *   url : './duck/duck.json',
+     *   show : true,                     // default
+     *   modelMatrix : modelMatrix,
+     *   scale : 2.0,                     // double size
+     *   allowPicking : false,            // not pickable
+     *   readyToRender : readyToRender,
+     *   debugShowBoundingVolume : false, // default
+     *   debugWireframe : false
+     * }));
+     *
+     * @see Model#readyToRender
      */
-    Model.fromText = function(options) {
+    Model.fromGltf = function(options) {
         //>>includeStart('debug', pragmas.debug);
         if (!defined(options) || !defined(options.url)) {
             throw new DeveloperError('options.url is required');
@@ -302,10 +413,44 @@ define([
         loadText(url, options.headers).then(function(data) {
             model.gltf = gltfDefaults(JSON.parse(data));
             model.basePath = basePath;
-            model.jsonLoad.raiseEvent();
         });
 
         return model;
+    };
+
+    /**
+     * Returns the glTF node with the given <code>name</code>.  This is used to
+     * modify a node's transform for animation outside of glTF animations.
+     *
+     * @memberof Model
+     *
+     * @param {String} name The glTF name of the node.
+     *
+     * @returns {ModelNode} The node or <code>undefined</code> if no node with <code>name</code> was found.
+     *
+     * @exception {DeveloperError} Nodes are not loaded.  Wait for the model's readyToRender event.
+     * @exception {DeveloperError} name is required.
+     *
+     * @example
+     * // Apply non-uniform scale to node LOD3sp
+     * var node = model.getNode('LOD3sp');
+     * node.matrix = Matrix4.fromScale(new Cartesian3(5.0, 1.0, 1.0), node.matrix);
+     */
+    Model.prototype.getNode = function(name) {
+        var nodes = this._runtime.nodes;
+
+        //>>includeStart('debug', pragmas.debug);
+        if (!defined(nodes)) {
+            throw new DeveloperError('Nodes are not loaded.  Wait for the model\'s readyToRender event.');
+        }
+
+        if (!defined(name)) {
+            throw new DeveloperError('name is required.');
+        }
+        //>>includeEnd('debug');
+
+        var node = nodes[name];
+        return defined(node) ? node.publicNode : undefined;
     };
 
     ///////////////////////////////////////////////////////////////////////////
@@ -399,6 +544,7 @@ define([
         var runtimeNodes = {};
         var skinnedNodes = [];
 
+        var skinnedNodesNames = model._loadResources.skinnedNodesNames;
         var nodes = model.gltf.nodes;
 
         for (var name in nodes) {
@@ -406,31 +552,43 @@ define([
                 var node = nodes[name];
 
                 var runtimeNode = {
-// TODO: remove these?
-                    name : name,
-
+                    // Animation targets
                     matrix : undefined,
                     translation : undefined,
                     rotation : undefined,
                     scale : undefined,
 
+                    // Computed transforms
                     transformToRoot : new Matrix4(),
                     computedMatrix : new Matrix4(),
                     dirty : false,                      // for graph traversal
                     anyAncestorDirty : false,           // for graph traversal
 
+                    // Rendering
                     commands : [],                      // empty for transform, light, and camera nodes
 
-                    skin : undefined,                   // undefined when node is not skinned
-                    jointMatrices : [],                 // empty when node is not skinned
-                    skeletons : [],                     // empty when node is not skinned
+                    // Skinned node
+                    inverseBindMatrices : undefined,    // undefined when node is not skinned
+                    bindShapeMatrix : undefined,        // undefined when node is not skinned or identity
+                    joints : [],                        // empty when node is not skinned
+                    computedJointMatrices : [],         // empty when node is not skinned
 
+                    // Joint node
+                    jointId : node.jointId,             // undefined when node is not a joint
+
+                    // Graph pointers
                     children : [],                      // empty for leaf nodes
-                    parents : []                        // empty for root nodes
+                    parents : [],                       // empty for root nodes
+
+                    // Publicly-accessible ModelNode instance to modify animation targets
+                    publicNode : undefined
                 };
+                runtimeNode.publicNode = new ModelNode(model, runtimeNode);
+
                 runtimeNodes[name] = runtimeNode;
 
                 if (defined(node.instanceSkin)) {
+                    skinnedNodesNames.push(name);
                     skinnedNodes.push(runtimeNode);
                 }
             }
@@ -651,6 +809,66 @@ define([
         return attributeLocations;
     }
 
+    function searchForest(forest, jointId) {
+        var length = forest.length;
+        for (var i = 0; i < length; ++i) {
+            var stack = [forest[i]]; // Push root node of tree
+
+            while (stack.length > 0) {
+                var n = stack.pop();
+
+                if (n.jointId === jointId) {
+                    return n;
+                }
+
+                var children = n.children;
+                var childrenLength = children.length;
+                for (var k = 0; k < childrenLength; ++k) {
+                    stack.push(children[k]);
+                }
+            }
+        }
+
+        // This should never happen; the skeleton should have a node for all joints in the skin.
+        return undefined;
+    }
+
+    function createJoints(model, runtimeSkins) {
+        var gltf = model.gltf;
+        var skins = gltf.skins;
+        var nodes = gltf.nodes;
+        var runtimeNodes = model._runtime.nodes;
+
+        var skinnedNodesNames = model._loadResources.skinnedNodesNames;
+        var length = skinnedNodesNames.length;
+        for (var j = 0; j < length; ++j) {
+            var name = skinnedNodesNames[j];
+            var skinnedNode = runtimeNodes[name];
+            var instanceSkin = nodes[name].instanceSkin;
+
+            var runtimeSkin = runtimeSkins[instanceSkin.skin];
+            skinnedNode.inverseBindMatrices = runtimeSkin.inverseBindMatrices;
+            skinnedNode.bindShapeMatrix = runtimeSkin.bindShapeMatrix;
+
+            // 1. Find nodes with the names in instanceSkin.skeletons (the node's skeletons)
+            // 2. These nodes form the root nodes of the forest to search for each joint in skin.joints.  This search uses jointId, not the node's name.
+
+            var forest = [];
+            var gltfSkeletons = instanceSkin.skeletons;
+            var skeletonsLength = gltfSkeletons.length;
+            for (var k = 0; k < skeletonsLength; ++k) {
+                forest.push(runtimeNodes[gltfSkeletons[k]]);
+            }
+
+            var gltfJointIds = skins[instanceSkin.skin].joints;
+            var jointIdsLength = gltfJointIds.length;
+            for (var i = 0; i < jointIdsLength; ++i) {
+                var jointId = gltfJointIds[i];
+                skinnedNode.joints.push(searchForest(forest, jointId));
+            }
+        }
+    }
+
     function createSkins(model) {
         var loadResources = model._loadResources;
 
@@ -667,8 +885,6 @@ define([
         var buffers = loadResources.buffers;
         var bufferViews = gltf.bufferViews;
         var skins = gltf.skins;
-        var nodes = gltf.nodes;
-        var runtimeNodes = model._runtime.nodes;
         var runtimeSkins = {};
 
         for (var name in skins) {
@@ -703,20 +919,7 @@ define([
             }
         }
 
-        var skinnedNodes = model._runtime.skinnedNodes;
-        var length = skinnedNodes.length;
-        for (var j = 0; j < length; ++j) {
-            var skinnedNode = skinnedNodes[j];
-            skinnedNode.skin = runtimeSkins[nodes[skinnedNode.name].instanceSkin.skin];
-
-            // TODO: we first find nodes with the names in instanceSkin.skeletons, then we only search those nodes and their sub-trees for nodes with jointId equal to the strings in skin.joints. Is this correct?
-            // TODO: https://github.com/KhronosGroup/glTF/issues/193
-            var gltfSkeletons = nodes[skinnedNode.name].instanceSkin.skeletons;
-            var skeletonsLength = gltfSkeletons.length;
-            for (var k = 0; k < skeletonsLength; ++k) {
-                skinnedNode.skeletons.push(runtimeNodes[gltfSkeletons[k]]);
-            }
-        }
+        createJoints(model, runtimeSkins);
     }
 
     function getChannelEvaluator(runtimeNode, targetPath, spline) {
@@ -1127,7 +1330,7 @@ define([
 
     function createJointMatricesFunction(runtimeNode) {
         return function() {
-            return runtimeNode.jointMatrices;
+            return runtimeNode.computedJointMatrices;
         };
     }
 
@@ -1370,14 +1573,12 @@ define([
         return Matrix4.fromTranslationQuaternionRotationScale(node.translation, node.rotation, node.scale, result);
     }
 
-    // To reduce allocations in updateModelMatrix()
     var scratchNodeStack = [];
-
     var scratchSphereCenter = new Cartesian3();
     var scratchSpheres = [];
     var scratchSubtract = new Cartesian3();
 
-    function updateModelMatrix(model, modelTransformChanged, justLoaded) {
+    function updateNodeHierarchyModelMatrix(model, modelTransformChanged, justLoaded) {
         var allowPicking = model.allowPicking;
         var gltf = model.gltf;
 
@@ -1395,7 +1596,7 @@ define([
         for (var i = 0; i < length; ++i) {
             var n = rootNodes[i];
 
-            n.transformToRoot = getNodeMatrix(n);
+            n.transformToRoot = getNodeMatrix(n, n.transformToRoot);
             nodeStack.push(n);
 
             while (nodeStack.length > 0) {
@@ -1494,20 +1695,19 @@ define([
 
             scratchObjectSpace = Matrix4.inverseTransformation(node.transformToRoot, scratchObjectSpace);
 
-            var jointMatrices = node.jointMatrices;
-            var joints = node.skeletons;
-            var skin = node.skin;
-            var bindShapeMatrix = skin.bindShapeMatrix;
-            var inverseBindMatrices = skin.inverseBindMatrices;
+            var computedJointMatrices = node.computedJointMatrices;
+            var joints = node.joints;
+            var bindShapeMatrix = node.bindShapeMatrix;
+            var inverseBindMatrices = node.inverseBindMatrices;
             var inverseBindMatricesLength = inverseBindMatrices.length;
 
             for (var m = 0; m < inverseBindMatricesLength; ++m) {
                 // [joint-matrix] = [node-to-root^-1][joint-to-root][inverse-bind][bind-shape]
-                jointMatrices[m] = Matrix4.multiplyTransformation(scratchObjectSpace, joints[m].transformToRoot, jointMatrices[m]);
-                jointMatrices[m] = Matrix4.multiplyTransformation(jointMatrices[m], inverseBindMatrices[m], jointMatrices[m]);
+                computedJointMatrices[m] = Matrix4.multiplyTransformation(scratchObjectSpace, joints[m].transformToRoot, computedJointMatrices[m]);
+                computedJointMatrices[m] = Matrix4.multiplyTransformation(computedJointMatrices[m], inverseBindMatrices[m], computedJointMatrices[m]);
                 if (defined(bindShapeMatrix)) {
                     // Optimization for when bind shape matrix is the identity.
-                    jointMatrices[m] = Matrix4.multiplyTransformation(jointMatrices[m], bindShapeMatrix, jointMatrices[m]);
+                    computedJointMatrices[m] = Matrix4.multiplyTransformation(computedJointMatrices[m], bindShapeMatrix, computedJointMatrices[m]);
                 }
             }
         }
@@ -1581,17 +1781,21 @@ define([
         }
 
         if (this._state === ModelState.LOADED) {
-            var animated = this.animations.update(frameState);
-            var modelTransformChanged = !Matrix4.equals(this._modelMatrix, this.modelMatrix) || (this._scale !== this.scale);
+            var animated = this.activeAnimations.update(frameState) || this._cesiumAnimationsDirty;
+            this._cesiumAnimationsDirty = false;
 
-            // Update modelMatrix throughout the tree as needed
-            if (animated || modelTransformChanged || justLoaded) {
+            // Model's model matrix needs to be updated
+            var modelTransformChanged = !Matrix4.equals(this._modelMatrix, this.modelMatrix) || (this._scale !== this.scale);
+            if (modelTransformChanged || justLoaded) {
                 Matrix4.clone(this.modelMatrix, this._modelMatrix);
                 this._scale = this.scale;
                 Matrix4.multiplyByUniformScale(this.modelMatrix, this.scale, this._computedModelMatrix);
+            }
 
+            // Update modelMatrix throughout the graph as needed
+            if (animated || modelTransformChanged || justLoaded) {
                 var updateModelMatrixScope = updateModelMatrixWtf();
-                updateModelMatrix(this, modelTransformChanged, justLoaded);
+                updateNodeHierarchyModelMatrix(this, modelTransformChanged, justLoaded);
                 WTF.trace.leaveScope(updateModelMatrixScope);
 
                 if (animated || justLoaded) {
@@ -1607,8 +1811,10 @@ define([
         if (justLoaded) {
             // Called after modelMatrix update.
             frameState.events.push({
-                event : this.readyToRender
+                event : this.readyToRender,
+                eventArguments : [this]
             });
+            return;
         }
 
 // TODO: make this not so wasteful
