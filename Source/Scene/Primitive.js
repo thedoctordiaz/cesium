@@ -289,7 +289,7 @@ define([
         /**
          * This property is for debugging only; it is not for production use nor is it optimized.
          * <p>
-         * Draws the bounding sphere for each {@see DrawCommand} in the primitive.
+         * Draws the bounding sphere for each {@link DrawCommand} in the primitive.
          * </p>
          *
          * @type {Boolean}
@@ -310,13 +310,13 @@ define([
         this._boundingSphereWC = undefined;
         this._boundingSphereCV = undefined;
         this._boundingSphere2D = undefined;
-        this._perInstanceAttributeIndices = undefined;
+        this._perInstanceAttributeLocations = undefined;
         this._instanceIds = [];
         this._lastPerInstanceAttributeIndex = 0;
         this._dirtyAttributes = [];
 
         this._va = [];
-        this._attributeIndices = undefined;
+        this._attributeLocations = undefined;
         this._primitiveType = undefined;
 
         this._frontFaceRS = undefined;
@@ -456,7 +456,7 @@ define([
     }
 
     function appendShow(primitive, vertexShaderSource) {
-        if (!defined(primitive._attributeIndices.show)) {
+        if (!defined(primitive._attributeLocations.show)) {
             return vertexShaderSource;
         }
 
@@ -472,7 +472,7 @@ define([
         return renamedVS + '\n' + showMain;
     }
 
-    function validateShaderMatching(shaderProgram, attributeIndices) {
+    function validateShaderMatching(shaderProgram, attributeLocations) {
         // For a VAO and shader program to be compatible, the VAO must have
         // all active attribute in the shader program.  The VAO may have
         // extra attributes with the only concern being a potential
@@ -487,7 +487,7 @@ define([
         //>>includeStart('debug', pragmas.debug);
         for (var name in shaderAttributes) {
             if (shaderAttributes.hasOwnProperty(name)) {
-                if (!defined(attributeIndices[name])) {
+                if (!defined(attributeLocations[name])) {
                     throw new DeveloperError('Appearance/Geometry mismatch.  The appearance requires vertex shader attribute input \'' + name +
                         '\', which was not computed as part of the Geometry.  Use the appearance\'s vertexFormat property when constructing the geometry.');
                 }
@@ -628,9 +628,9 @@ define([
                         PrimitivePipeline.receivePerInstanceAttributes(result.vaAttributes);
 
                         that._geometries = result.geometries;
-                        that._attributeIndices = result.attributeIndices;
+                        that._attributeLocations = result.attributeLocations;
                         that._vaAttributes = result.vaAttributes;
-                        that._perInstanceAttributeIndices = result.vaAttributeIndices;
+                        that._perInstanceAttributeLocations = result.vaAttributeLocations;
                         Matrix4.clone(result.modelMatrix, that.modelMatrix);
                         that._state = PrimitiveState.COMBINED;
                     }, function(error) {
@@ -681,16 +681,16 @@ define([
                 });
 
                 this._geometries = result.geometries;
-                this._attributeIndices = result.attributeIndices;
+                this._attributeLocations = result.attributeLocations;
                 this._vaAttributes = result.vaAttributes;
-                this._perInstanceAttributeIndices = result.vaAttributeIndices;
+                this._perInstanceAttributeLocations = result.vaAttributeLocations;
                 Matrix4.clone(result.modelMatrix, this.modelMatrix);
 
                 this._state = PrimitiveState.COMBINED;
             }
         }
 
-        var attributeIndices = this._attributeIndices;
+        var attributeLocations = this._attributeLocations;
 
         if (this._state === PrimitiveState.COMBINED) {
             geometries = this._geometries;
@@ -713,7 +713,7 @@ define([
 
                 va.push(context.createVertexArrayFromGeometry({
                     geometry : geometry,
-                    attributeIndices : attributeIndices,
+                    attributeLocations : attributeLocations,
                     bufferUsage : BufferUsage.STATIC_DRAW,
                     vertexLayout : VertexLayout.INTERLEAVED,
                     vertexArrayAttributes : attributes
@@ -804,17 +804,17 @@ define([
             vs = appendShow(this, vs);
             var fs = appearance.getFragmentShaderSource();
 
-            this._sp = shaderCache.replaceShaderProgram(this._sp, vs, fs, attributeIndices);
-            validateShaderMatching(this._sp, attributeIndices);
+            this._sp = shaderCache.replaceShaderProgram(this._sp, vs, fs, attributeLocations);
+            validateShaderMatching(this._sp, attributeLocations);
 
             if (allowPicking) {
                 var pickFS = createShaderSource({ sources : [fs], pickColorQualifier : 'varying' });
-                this._pickSP = shaderCache.replaceShaderProgram(this._pickSP, createPickVertexShaderSource(vs), pickFS, attributeIndices);
+                this._pickSP = shaderCache.replaceShaderProgram(this._pickSP, createPickVertexShaderSource(vs), pickFS, attributeLocations);
             } else {
-                this._pickSP = shaderCache.getShaderProgram(vs, fs, attributeIndices);
+                this._pickSP = shaderCache.getShaderProgram(vs, fs, attributeLocations);
             }
 
-            validateShaderMatching(this._pickSP, attributeIndices);
+            validateShaderMatching(this._pickSP, attributeLocations);
         }
 
         var colorCommands = this._colorCommands;
@@ -997,7 +997,7 @@ define([
         if (!defined(id)) {
             throw new DeveloperError('id is required');
         }
-        if (!defined(this._perInstanceAttributeIndices)) {
+        if (!defined(this._perInstanceAttributeLocations)) {
             throw new DeveloperError('must call update before calling getGeometryInstanceAttributes');
         }
         //>>includeEnd('debug');
@@ -1018,7 +1018,7 @@ define([
             return undefined;
         }
 
-        var perInstanceAttributes = this._perInstanceAttributeIndices[index];
+        var perInstanceAttributes = this._perInstanceAttributeLocations[index];
         var attributes = {};
         var properties = {};
         var hasProperties = false;
