@@ -37,17 +37,23 @@ define([
      *
      * @see Model#getNode
      */
-    var ModelNode = function(model, runtimeNode) {
+    var ModelNode = function(model, node, runtimeNode) {
         this._model = model;
         this._runtimeNode = runtimeNode;
+
+        /**
+         * DOC_TBA
+         *
+         * @readonly
+         */
+        this.name = node.name;
+
+        this._matrix = undefined;
     };
 
     defineProperties(ModelNode.prototype, {
         /**
-         * The 4x4 matrix that transforms from this node's coordinate system to
-         * its parent node's coordinate system.  When a matrix is provided,
-         * it takes precedence over the {@link ModelNode#translation},
-         * {@link ModelNode#rotation}, and {@link ModelNode#scale} properties.
+         * DOC_TBA
          * <p>
          * For changes to take affect, this property must be assigned to;
          * setting individual elements of the matrix will not work.
@@ -58,114 +64,17 @@ define([
          */
         matrix : {
             get : function () {
-                return this._runtimeNode.matrix;
+                return this._matrix;
             },
             set : function(value) {
-                var runtimeNode = this._runtimeNode;
-                runtimeNode.matrix = Matrix4.clone(value, runtimeNode.matrix);
-                runtimeNode.dirty = true;
-                this._model._cesiumAnimationsDirty = true;
-            }
-        },
+                this._matrix = Matrix4.clone(value, this._matrix);
 
-        /**
-         * Together, <code>translation</code>, {@link ModelNode#rotation}, and {@link ModelNode#scale}
-         * define a transform from this node's coordinate system to its parent node's
-         * coordinate system.
-         * <p>
-         * Using these properties instead of {@link ModeNode#matrix} allows user
-         * animations to target individual transforms, e.g., just translation,
-         * instead of the entire 4x4 matrix.
-         * </p>
-         * <p>
-         * For changes to take affect, this property must be assigned to;
-         * setting individual elements of the Cartesian will not work.
-         * </p>
-         * <p>
-         * When {@link ModeNode#matrix} is defined, it takes precedence; otherwise,
-         * all three properties must be defined.
-         * </p>
-         *
-         * @memberof ModelAnimationCollection
-         * @type {Cartesian3}
-         */
-        translation : {
-            get : function () {
-                return this._runtimeNode.translation;
-            },
-            set : function(value) {
-                var runtimeNode = this._runtimeNode;
-                runtimeNode.translation = Cartesian3.clone(value, runtimeNode.translation);
-                runtimeNode.dirty = true;
-                this._model._cesiumAnimationsDirty = true;
-            }
-        },
-
-        /**
-         * Together, {@link ModelNode#translation}, <code>rotation</code>, and {@link ModelNode#scale}
-         * define a transform from this node's coordinate system to its parent node's
-         * coordinate system.
-         * <p>
-         * Using these properties instead of {@link ModeNode#matrix} allows user
-         * animations to target individual transforms, e.g., just rotation,
-         * instead of the entire 4x4 matrix.
-         * </p>
-         * <p>
-         * For changes to take affect, this property must be assigned to;
-         * setting individual elements of the Quaternion will not work.
-         * </p>
-         * <p>
-         * When {@link ModeNode#matrix} is defined, it takes precedence; otherwise,
-         * all three properties must be defined.
-         * </p>
-         *
-         * @memberof ModelAnimationCollection
-         * @type {Quaternion}
-         */
-        rotation : {
-            get : function () {
-                return this._runtimeNode.rotation;
-            },
-            set : function(value) {
-                var runtimeNode = this._runtimeNode;
-                runtimeNode.rotation = Quaternion.clone(value, runtimeNode.rotation);
-                runtimeNode.dirty = true;
-                this._model._cesiumAnimationsDirty = true;
-            }
-        },
-
-        /**
-         * Together, {@link ModelNode#translation}, {@link ModelNode#rotation}, and <code>scale</code>
-         * define a transform from this node's coordinate system to its parent node's
-         * coordinate system.
-         * <p>
-         * Using these properties instead of {@link ModeNode#matrix} allows user
-         * animations to target individual transforms, e.g., just scale,
-         * instead of the entire 4x4 matrix.
-         * </p>
-         * <p>
-         * For changes to take affect, this property must be assigned to;
-         * setting individual elements of the Cartesian will not work.
-         * </p>
-         * <p>
-         * When {@link ModeNode#matrix} is defined, it takes precedence; otherwise,
-         * all three properties must be defined.
-         * </p>
-         *
-         * @memberof ModelAnimationCollection
-         * @type {Cartesian3}
-         */
-        scale : {
-            get : function () {
-                return this._runtimeNode.scale;
-            },
-            set : function(value) {
-                var runtimeNode = this._runtimeNode;
-                runtimeNode.scale = Cartesian3.clone(value, runtimeNode.scale);
-                runtimeNode.dirty = true;
-                this._model._cesiumAnimationsDirty = true;
+                var model = this._model;
+                model._cesiumAnimationsDirty = true;
+                this._runtimeNode.dirtyNumber = model._maxDirtyNumber;
             }
         }
+
     });
 
     return ModelNode;

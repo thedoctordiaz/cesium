@@ -206,10 +206,10 @@ define([
         var model = scene.getPrimitives().add(Model.fromGltf({
             url : defaultValue(endUserOptions.model, './Gallery/model/duck/duck.json'),
             modelMatrix : modelMatrix,
-            scale : 10.0,
+            scale : 1.0,
             debugWireframe : endUserOptions.wireframe,
-            allowPicking : endUserOptions.allowPicking
-            //, debugShowBoundingVolume : true
+            allowPicking : endUserOptions.allowPicking,
+            debugShowBoundingVolume : endUserOptions.showBoundingVolume
         }));
 /*
         var animationStart = new Event();
@@ -240,14 +240,6 @@ define([
             statistics = gltfStatistics(model.gltf);
             console.log(statistics);
 
-//            var node = model.getNode('LOD3sp');
-//            node.matrix = Matrix4.fromScale(new Cartesian3(5.0, 1.0, 1.0), node.matrix);
-
-//            node.matrix = undefined;
-//            node.translation = new Cartesian3();
-//            node.rotation = Quaternion.IDENTITY.clone();
-//            node.scale = new Cartesian3(5.0, 1.0, 1.0);
-
             if (endUserOptions.animate) {
                 model.activeAnimations.addAll({
                     // startTime : (new JulianDate()).addSeconds(3),
@@ -263,7 +255,8 @@ define([
                 });
             }
 
-            var center = model.worldBoundingSphere.center;
+            var worldBoundingSphere = model.computeWorldBoundingSphere();
+            var center = worldBoundingSphere.center;
             var transform = Transforms.eastNorthUpToFixedFrame(center);
 
             // View in east-north-up frame
@@ -277,7 +270,7 @@ define([
 
             // Zoom in
             camera.controller.lookAt(
-                new Cartesian3(0.0, -model.worldBoundingSphere.radius * 0.25, model.worldBoundingSphere.radius * 2.0),
+                new Cartesian3(0.0, -worldBoundingSphere.radius * 0.25, worldBoundingSphere.radius * 2.0),
                 Cartesian3.ZERO,
                 Cartesian3.UNIT_Z);
         });
@@ -310,6 +303,14 @@ define([
             ScreenSpaceEventType.MOUSE_MOVE
         );
 */
+
+        handler.setInputAction(
+            function () {
+                var n = prevPickedNode;
+                n.matrix = Matrix4.multiplyByUniformScale(defaultValue(n.matrix, Matrix4.IDENTITY.clone()), 2.0, n.matrix);
+            },
+            ScreenSpaceEventType.LEFT_CLICK
+        );
 
 //      scene.debugCommandFilter = function(command) { return command.owner.instance === model; };
 

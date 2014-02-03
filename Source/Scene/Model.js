@@ -1,4 +1,4 @@
-/*global define*/
+/*global define,WebGLRenderingContext*/
 define([
         '../Core/combine',
         '../Core/defined',
@@ -275,14 +275,6 @@ define([
          */
         this.readyToRender = defaultValue(options.readyToRender, new Event());
 
-// TODO: will change with animation
-// TODO: only load external files if within bounding sphere
-// TODO: cull whole model, not commands?  Good for our use-cases, but not buildings, etc.
-        /**
-         * DOC_TBA
-         */
-        this.worldBoundingSphere = new BoundingSphere();
-
         /**
          * The currently playing glTF animations.
          *
@@ -321,6 +313,7 @@ define([
         this._loadResources = undefined;
 
         this._cesiumAnimationsDirty = false;       // true when the Cesium API, not a glTF animation, changed a node transform
+        this._maxDirtyNumber = 0;                  // Used in place of a dirty boolean flag to avoid an extra graph traversal
 
         this._runtime = {
             animations : undefined,
@@ -437,10 +430,8 @@ define([
      * node.matrix = Matrix4.fromScale(new Cartesian3(5.0, 1.0, 1.0), node.matrix);
      */
     Model.prototype.getNode = function(name) {
-        var nodes = this._runtime.nodes;
-
         //>>includeStart('debug', pragmas.debug);
-        if (!defined(nodes)) {
+        if (this._state !== ModelState.LOADED) {
             throw new DeveloperError('Nodes are not loaded.  Wait for the model\'s readyToRender event.');
         }
 
@@ -449,8 +440,73 @@ define([
         }
         //>>includeEnd('debug');
 
-        var node = nodes[name];
+        var node = this._runtime.nodes[name];
         return defined(node) ? node.publicNode : undefined;
+    };
+
+    var scratchSphereCenter = new Cartesian3();
+    var scratchSpheres = [];
+    var scratchSubtract = new Cartesian3();
+
+    /**
+     * Computes the bounding sphere around the entire model in world coordinates using the
+     * previous frame's {@link Model#modelMatrix} and node transforms.  This can be used in
+     * {@link readyToRender} to zoom to the model.  This can't be called before the
+     * {@link readyToRender} event fires because it requires that the glTF nodes are loaded.
+     *
+     * @memberof Model
+     *
+     * @param {BoundingSphere} [result] The object onto which to store the result.
+     *
+     * @returns {BoundingSphere} The modified result parameter or a new BoundingSphere instance if one was not provided.
+     *
+     * @exception {DeveloperError} Nodes are not loaded.  Wait for the model's readyToRender event.
+     */
+    Model.prototype.computeWorldBoundingSphere = function(result) {
+        if (this._state !== ModelState.LOADED) {
+            throw new DeveloperError('Nodes are not loaded.  Wait for the model\'s readyToRender event.');
+        }
+
+        if (!defined(result)) {
+            result = new BoundingSphere();
+        }
+
+        // Compute bounding sphere that includes all transformed nodes
+        Cartesian3.clone(Cartesian3.ZERO, scratchSphereCenter);
+        scratchSpheres.length = 0;
+        var spheres = scratchSpheres;
+
+        var commands = this._renderCommands;
+        var length = commands.length;
+
+        for (var i = 0; i < length; ++i) {
+            var command = commands[i];
+            Cartesian3.add(command.boundingVolume.center, scratchSphereCenter, scratchSphereCenter);
+            spheres.push(command.boundingVolume);
+        }
+
+        if (spheres.length > 0) {
+            // Compute bounding sphere around the model
+            var radiusSquared = 0;
+            var index = 0;
+
+            length = spheres.length;
+            Cartesian3.divideByScalar(scratchSphereCenter, length, scratchSphereCenter);
+            for (i = 0; i < length; ++i) {
+                var bbs = spheres[i];
+                var r = Cartesian3.magnitudeSquared(Cartesian3.subtract(bbs.center, scratchSphereCenter, scratchSubtract));
+
+                if (r > radiusSquared) {
+                    radiusSquared = r;
+                    index = i;
+                }
+            }
+
+            Cartesian3.clone(scratchSphereCenter, result.center);
+            result.radius = Math.sqrt(radiusSquared) + spheres[index].radius;
+        }
+
+        return result;
     };
 
     ///////////////////////////////////////////////////////////////////////////
@@ -561,8 +617,7 @@ define([
                     // Computed transforms
                     transformToRoot : new Matrix4(),
                     computedMatrix : new Matrix4(),
-                    dirty : false,                      // for graph traversal
-                    anyAncestorDirty : false,           // for graph traversal
+                    dirtyNumber : 0,               // The frame this node was made dirty by an animation; for graph traversal
 
                     // Rendering
                     commands : [],                      // empty for transform, light, and camera nodes
@@ -583,7 +638,7 @@ define([
                     // Publicly-accessible ModelNode instance to modify animation targets
                     publicNode : undefined
                 };
-                runtimeNode.publicNode = new ModelNode(model, runtimeNode);
+                runtimeNode.publicNode = new ModelNode(model, node, runtimeNode);
 
                 runtimeNodes[name] = runtimeNode;
 
@@ -693,7 +748,7 @@ define([
             model._rendererResources.programs[name] = context.getShaderCache().getShaderProgram(vs, fs, attributeLocations);
 
             if (model.allowPicking) {
-             // TODO: Can optimize this shader with a glTF hint. https://github.com/KhronosGroup/glTF/issues/181
+                // PERFORMANCE_IDEA: Can optimize this shader with a glTF hint. https://github.com/KhronosGroup/glTF/issues/181
                 var pickFS = createShaderSource({
                     sources : [fs],
                     pickColorQualifier : 'uniform'
@@ -922,10 +977,10 @@ define([
         createJoints(model, runtimeSkins);
     }
 
-    function getChannelEvaluator(runtimeNode, targetPath, spline) {
+    function getChannelEvaluator(model, runtimeNode, targetPath, spline) {
         return function(localAnimationTime) {
             runtimeNode[targetPath] = spline.evaluate(localAnimationTime, runtimeNode[targetPath]);
-            runtimeNode.dirty = true;
+            runtimeNode.dirtyNumber = model._maxDirtyNumber;
         };
     }
 
@@ -981,8 +1036,8 @@ define([
                      stopTime = Math.max(stopTime, times[times.length - 1]);
 
                      var spline = ModelCache.getAnimationSpline(model, animationName, animation, channel.sampler, sampler, parameterValues);
-                     // TODO: Support other targets when glTF does: https://github.com/KhronosGroup/glTF/issues/142
-                     channelEvaluators[i] = getChannelEvaluator(runtimeNodes[target.id], target.path, spline);
+                     // GLTF_SPEC: Support more targets like materials. https://github.com/KhronosGroup/glTF/issues/142
+                     channelEvaluators[i] = getChannelEvaluator(model, runtimeNodes[target.id], target.path, spline);
                  }
 
                  model._runtime.animations[animationName] = {
@@ -1025,18 +1080,22 @@ define([
                     var primitiveAttributes = primitive.attributes;
                     for (var attrName in primitiveAttributes) {
                         if (primitiveAttributes.hasOwnProperty(attrName)) {
-                            var a = accessors[primitiveAttributes[attrName]];
-
-                            var type = ModelTypes[a.type];
-                            attrs.push({
-                                index                  : attributeLocations[attrName],
-                                vertexBuffer           : rendererBuffers[a.bufferView],
-                                componentsPerAttribute : type.componentsPerAttribute,
-                                componentDatatype      : type.componentDatatype,
-                                normalize              : false,
-                                offsetInBytes          : a.byteOffset,
-                                strideInBytes          : a.byteStride
-                            });
+                            var attributeLocation = attributeLocations[attrName];
+                            // Skip if the attribute is not used by the material, e.g., because the asset was exported
+                            // with an attribute that wasn't used and the asset wasn't optimized.
+                            if (defined(attributeLocation)) {
+                                var a = accessors[primitiveAttributes[attrName]];
+                                var type = ModelTypes[a.type];
+                                attrs.push({
+                                    index                  : attributeLocation,
+                                    vertexBuffer           : rendererBuffers[a.bufferView],
+                                    componentsPerAttribute : type.componentsPerAttribute,
+                                    componentDatatype      : type.componentDatatype,
+                                    normalize              : false,
+                                    offsetInBytes          : a.byteOffset,
+                                    strideInBytes          : a.byteStride
+                                });
+                            }
                         }
                     }
 
@@ -1076,8 +1135,11 @@ define([
         }
     }
 
+    // The glTF spec allows both mat4 (3D) and mat3 (2D) affine transforms and
+    // mat3 (3D) and mat2 (2D) rotations.  We only support 3D.
+    //
+    // This also doesn't support LOCAL, which we could add if it is ever used.
     var gltfSemanticUniforms = {
-// TODO: All semantics from https://github.com/KhronosGroup/glTF/issues/83
         MODEL : function(uniformState) {
             return function() {
                 return uniformState.getModel();
@@ -1096,11 +1158,6 @@ define([
         MODELVIEW : function(uniformState) {
             return function() {
                 return uniformState.getModelView();
-            };
-        },
-        VIEWPROJECTION : function(uniformState) {
-            return function() {
-                return uniformState.getViewProjection();
             };
         },
         MODELVIEWPROJECTION : function(uniformState) {
@@ -1128,14 +1185,24 @@ define([
                 return uniformState.getInverseModelView();
             };
         },
-        VIEWPROJECTIONINVERSE : function(uniformState) {
+        MODELVIEWPROJECTIONINVERSE : function(uniformState) {
             return function() {
-                return uniformState.getInverseViewProjection();
+                return uniformState.getInverseModelViewProjection();
+            };
+        },
+        MODELINVERSETRANSPOSE : function(uniformState) {
+            return function() {
+                return uniformState.getInverseTranposeModel();
             };
         },
         MODELVIEWINVERSETRANSPOSE : function(uniformState) {
             return function() {
                 return uniformState.getNormal();
+            };
+        },
+        VIEWPORT : function(uniformState) {
+            return function() {
+                return uniformState.getViewportCartesian4();
             };
         }
         // JOINT_MATRIX created in createCommands()
@@ -1280,7 +1347,6 @@ define([
                                 // Parameter overrides by the instance technique
                                 func = gltfUniformFunctions[parameter.type](instanceParameters[parameterName], model);
                             } else if (defined(parameter.semantic)) {
-// TODO: account for parameter.type with semantic
                                 if (parameter.semantic !== 'JOINT_MATRIX') {
                                     // Map glTF semantic to Cesium automatic uniform
                                     func = gltfSemanticUniforms[parameter.semantic](context.getUniformState());
@@ -1402,7 +1468,9 @@ define([
                     primitive : model,
                     id : model.id,
                     gltf : {
-                        node : gltfNode,
+                        node : runtimeNode.publicNode,
+
+// TODO: Expose direct glTF types like we do here?
                         mesh : mesh,
                         primitive : primitive,
                         primitiveIndex : i
@@ -1565,22 +1633,26 @@ define([
     ///////////////////////////////////////////////////////////////////////////
 
     function getNodeMatrix(node, result) {
+        var m;
         if (defined(node.matrix)) {
-            result = node.matrix;
-            return node.matrix;
+            m = Matrix4.clone(node.matrix, result);
+        } else {
+            m = Matrix4.fromTranslationQuaternionRotationScale(node.translation, node.rotation, node.scale, result);
         }
 
-        return Matrix4.fromTranslationQuaternionRotationScale(node.translation, node.rotation, node.scale, result);
+        var customMatrix = node.publicNode.matrix;
+        if (defined(customMatrix)) {
+// TODO: what exactly to expose?
+// TODO: bounding sphere for stick figure
+            m = Matrix4.multiplyTransformation(m, customMatrix, m);
+        }
     }
 
     var scratchNodeStack = [];
-    var scratchSphereCenter = new Cartesian3();
-    var scratchSpheres = [];
-    var scratchSubtract = new Cartesian3();
 
     function updateNodeHierarchyModelMatrix(model, modelTransformChanged, justLoaded) {
+        var maxDirtyNumber = model._maxDirtyNumber;
         var allowPicking = model.allowPicking;
-        var gltf = model.gltf;
 
         var rootNodes = model._runtime.rootNodes;
         var length = rootNodes.length;
@@ -1588,15 +1660,10 @@ define([
         var nodeStack = scratchNodeStack;
         var computedModelMatrix = model._computedModelMatrix;
 
-        // Compute bounding sphere that includes all transformed nodes
-        Cartesian3.clone(Cartesian3.ZERO, scratchSphereCenter);
-        scratchSpheres.length = 0;
-        var spheres = scratchSpheres;
-
         for (var i = 0; i < length; ++i) {
             var n = rootNodes[i];
 
-            n.transformToRoot = getNodeMatrix(n, n.transformToRoot);
+            getNodeMatrix(n, n.transformToRoot);
             nodeStack.push(n);
 
             while (nodeStack.length > 0) {
@@ -1604,12 +1671,7 @@ define([
                 var transformToRoot = n.transformToRoot;
                 var commands = n.commands;
 
-                // This nodes transform needs to be updated if
-                // - It was targeted for animation this frame, or
-                // - Any of its ancestors were targeted for animation this frame
-                var dirty = (n.dirty || n.anyAncestorDirty);
-
-                if (dirty || modelTransformChanged || justLoaded) {
+                if ((n.dirtyNumber === maxDirtyNumber) || modelTransformChanged || justLoaded) {
                     var commandsLength = commands.length;
                     if (commandsLength > 0) {
                         // Node has meshes, which has primitives.  Update their commands.
@@ -1618,19 +1680,14 @@ define([
                             var command = primitiveCommand.command;
                             Matrix4.multiplyTransformation(computedModelMatrix, transformToRoot, command.modelMatrix);
 
-                            // TODO: Use transformWithoutScale if no node up to the root has scale (included targeted scale from animation).
-                            // Preprocess this and store it with each node.
+                            // PERFORMANCE_IDEA: Can use transformWithoutScale if no node up to the root has scale (inclug animation)
                             BoundingSphere.transform(primitiveCommand.boundingSphere, command.modelMatrix, command.boundingVolume);
-                            //BoundingSphere.transformWithoutScale(primitiveCommand.boundingSphere, command.modelMatrix, command.boundingVolume);
 
                             if (allowPicking) {
                                 var pickCommand = primitiveCommand.pickCommand;
                                 Matrix4.clone(command.modelMatrix, pickCommand.modelMatrix);
                                 BoundingSphere.clone(command.boundingVolume, pickCommand.boundingVolume);
                             }
-
-                            Cartesian3.add(command.boundingVolume.center, scratchSphereCenter, scratchSphereCenter);
-                            spheres.push(command.boundingVolume);
                         }
                     } else {
                         // Node has a light or camera
@@ -1638,46 +1695,33 @@ define([
                     }
                 }
 
-                n.dirty = false;
-                n.anyAncestorDirty = false;
-
                 var children = n.children;
                 var childrenLength = children.length;
                 for (var k = 0; k < childrenLength; ++k) {
                     var child = children[k];
 
-                    if (dirty || justLoaded) {
-                        var childMatrix = getNodeMatrix(child, child.transformToRoot);
-                        Matrix4.multiplyTransformation(transformToRoot, childMatrix, child.transformToRoot);
+                    // A node's transform needs to be updated if
+                    // - It was targeted for animation this frame, or
+                    // - Any of its ancestors were targeted for animation this frame
+
+                    // PERFORMANCE_IDEA: if a child has multiple parents and only one of the parents
+                    // is dirty, all the subtrees for each child instance will be dirty; we probably
+                    // won't see this in the wild often.
+                    child.dirtyNumber = Math.max(child.dirtyNumber, n.dirtyNumber);
+
+                    if ((child.dirtyNumber === maxDirtyNumber) || justLoaded) {
+                        // Don't check for modelTransformChanged since if only the model's model matrix changed,
+                        // we do not need to rebuild the local transform-to-root, only the final
+                        // [model's-model-matrix][transform-to-root] above.
+                        getNodeMatrix(child, child.transformToRoot);
+                        Matrix4.multiplyTransformation(transformToRoot, child.transformToRoot, child.transformToRoot);
                     }
 
-                    child.anyAncestorDirty = dirty;
                     nodeStack.push(child);
                 }
             }
         }
-
-        if (spheres.length > 0) {
-            // Compute bounding sphere around the model
-            var radiusSquared = 0;
-            var index = 0;
-
-            length = spheres.length;
-            Cartesian3.divideByScalar(scratchSphereCenter, length, scratchSphereCenter);
-            for (i = 0; i < length; ++i) {
-                var bbs = spheres[i];
-                var r = Cartesian3.magnitudeSquared(Cartesian3.subtract(bbs.center, scratchSphereCenter, scratchSubtract));
-
-                if (r > radiusSquared) {
-                    radiusSquared = r;
-                    index = i;
-                }
-            }
-
-            // TODO: world bounding sphere is wrong unless all nodes are dirty.
-            Cartesian3.clone(scratchSphereCenter, model.worldBoundingSphere.center);
-            model.worldBoundingSphere.radius = Math.sqrt(radiusSquared) + spheres[index].radius;
-        }
+        ++model._maxDirtyNumber;
     }
 
     var scratchObjectSpace = new Matrix4();
