@@ -31,7 +31,7 @@ define([
         '../Renderer/Pass',
         '../Renderer/createShaderSource',
         './ModelTypes',
-        './ModelCache',
+        './ModelAnimationCache',
         './ModelAnimationCollection',
         './ModelNode',
         './SceneMode',
@@ -69,7 +69,7 @@ define([
         Pass,
         createShaderSource,
         ModelTypes,
-        ModelCache,
+        ModelAnimationCache,
         ModelAnimationCollection,
         ModelNode,
         SceneMode,
@@ -816,7 +816,6 @@ define([
                 source = canvas;
             }
 
-// TODO: texture cache
             var tx;
 
             if (texture.target === WebGLRenderingContext.TEXTURE_2D) {
@@ -826,7 +825,7 @@ define([
                     flipY : false
                 });
             }
-            // TODO: else handle WebGLRenderingContext.TEXTURE_CUBE_MAP.  https://github.com/KhronosGroup/glTF/issues/40
+            // GLTF_SPEC: Support TEXTURE_CUBE_MAP.  https://github.com/KhronosGroup/glTF/issues/40
 
             if (mipmap) {
                 tx.generateMipmap();
@@ -950,8 +949,6 @@ define([
 
                 var type = inverseBindMatrices.type;
                 var count = inverseBindMatrices.count;
-
-// TODO: move to ModelCache.
                 var typedArray = ModelTypes[type].createArrayBufferView(buffers[bufferView.buffer], bufferView.byteOffset + inverseBindMatrices.byteOffset, count);
                 var matrices =  new Array(count);
 
@@ -960,7 +957,7 @@ define([
                         matrices[i] = Matrix4.fromArray(typedArray, 16 * i);
                     }
                 }
-                // TODO: else handle all valid types: https://github.com/KhronosGroup/glTF/issues/191
+                // The glTF spec also allows 3D matrices for skinning of 2D models, but we do not support it.
 
                 var bindShapeMatrix;
                 if (!Matrix4.equals(skin.bindShapeMatrix, Matrix4.IDENTITY)) {
@@ -979,6 +976,12 @@ define([
 
     function getChannelEvaluator(model, runtimeNode, targetPath, spline) {
         return function(localAnimationTime) {
+// TODO: remove workaround for https://github.com/KhronosGroup/glTF/issues/219
+/*
+            if (targetPath === 'translation') {
+                return;
+            }
+*/
             runtimeNode[targetPath] = spline.evaluate(localAnimationTime, runtimeNode[targetPath]);
             runtimeNode.dirtyNumber = model._maxDirtyNumber;
         };
@@ -1015,7 +1018,7 @@ define([
 
                  for (name in parameters) {
                      if (parameters.hasOwnProperty(name)) {
-                         parameterValues[name] = ModelCache.getAnimationParameterValues(model, accessors[parameters[name]]);
+                         parameterValues[name] = ModelAnimationCache.getAnimationParameterValues(model, accessors[parameters[name]]);
                      }
                  }
 
@@ -1035,7 +1038,7 @@ define([
                      startTime = Math.min(startTime, times[0]);
                      stopTime = Math.max(stopTime, times[times.length - 1]);
 
-                     var spline = ModelCache.getAnimationSpline(model, animationName, animation, channel.sampler, sampler, parameterValues);
+                     var spline = ModelAnimationCache.getAnimationSpline(model, animationName, animation, channel.sampler, sampler, parameterValues);
                      // GLTF_SPEC: Support more targets like materials. https://github.com/KhronosGroup/glTF/issues/142
                      channelEvaluators[i] = getChannelEvaluator(model, runtimeNodes[target.id], target.path, spline);
                  }
@@ -1291,7 +1294,7 @@ define([
     gltfUniformFunctions[WebGLRenderingContext.FLOAT_MAT3] = getMat3UniformFunction;
     gltfUniformFunctions[WebGLRenderingContext.FLOAT_MAT4] = getMat4UniformFunction;
     gltfUniformFunctions[WebGLRenderingContext.SAMPLER_2D] = getTextureUniformFunction;
-    // TODO: function for gltfUniformFunctions[WebGLRenderingContext.SAMPLER_CUBE].  https://github.com/KhronosGroup/glTF/issues/40
+    // GLTF_SPEC: Support SAMPLER_CUBE. https://github.com/KhronosGroup/glTF/issues/40
 
     function getUniformFunctionFromSource(source, model) {
         var runtimeNode = model._runtime.nodes[source];
@@ -1462,7 +1465,8 @@ define([
                     uniformMap = combine([uniformMap, jointUniformMap], false, false);
                 }
 
-                var isTranslucent = pass.states.blendEnable; // TODO: Offical way to test this: https://github.com/KhronosGroup/glTF/issues/105
+                // GLTF_SPEC: Offical means to determine translucency. https://github.com/KhronosGroup/glTF/issues/105
+                var isTranslucent = pass.states.blendEnable;
                 var rs = rendererRenderStates[instanceTechnique.technique];
                 var owner = {
                     primitive : model,
@@ -1908,6 +1912,14 @@ define([
         }
     }
 
+    function release(property) {
+        for (var name in property) {
+            if (property.hasOwnProperty(name)) {
+                property[name].release();
+            }
+        }
+    }
+
     /**
      * Destroys the WebGL resources held by this object.  Destroying an object allows for deterministic
      * release of WebGL resources, instead of relying on the garbage collector to destroy this object.
@@ -1931,8 +1943,8 @@ define([
         var resources = this._rendererResources;
         destroy(resources.buffers);
         destroy(resources.vertexArrays);
-        destroy(resources.programs);
-        destroy(resources.pickPrograms);
+        release(resources.programs);
+        release(resources.pickPrograms);
         destroy(resources.textures);
         resources = undefined;
         this._rendererResources = undefined;
