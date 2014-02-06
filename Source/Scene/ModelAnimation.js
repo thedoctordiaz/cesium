@@ -1,11 +1,11 @@
 /*global define*/
 define([
         '../Core/defaultValue',
-        './ModelAnimationWrap',
+        './ModelAnimationLoop',
         './ModelAnimationState'
     ], function(
         defaultValue,
-        ModelAnimationWrap,
+        ModelAnimationLoop,
         ModelAnimationState) {
     "use strict";
 
@@ -58,7 +58,7 @@ define([
         /**
          * The scene time to stop playing this animation.  When this is <code>undefined</code>,
          * the animation is played for its full duration and perhaps repeated depending on
-         * {@link ModelAnimation#wrap}.
+         * {@link ModelAnimation#loop}.
          *
          * @type {JulianDate}
          * @default undefined
@@ -104,12 +104,12 @@ define([
         /**
          * Determines if and how the animation is looped.
          *
-         * @type {ModelAnimationWrap}
-         * @default {@link ModelAnimationWrap.CLAMP}
+         * @type {ModelAnimationLoop}
+         * @default {@link ModelAnimationLoop.NONE}
          *
          * @readonly
          */
-        this.wrap = defaultValue(options.wrap, ModelAnimationWrap.CLAMP);
+        this.loop = defaultValue(options.loop, ModelAnimationLoop.NONE);
 
         /**
          * The event fired when this animation is started.  This can be used, for

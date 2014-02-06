@@ -153,6 +153,7 @@ define([
      * @param {Boolean} [options.show=true] Determines if the model primitive will be shown.
      * @param {Matrix4} [options.modelMatrix=Matrix4.IDENTITY] The 4x4 transformation matrix that transforms the model from model to world coordinates.
      * @param {Number} [options.scale=1.0] A uniform scale applied to this model.
+     * @param {Object} [options.id=undefined] A user-defined object to return when the model is picked with {@link Scene#pick}.
      * @param {Object} [options.allowPicking=true] When <code>true</code>, each glTF mesh and primitive is pickable with {@link Scene#pick}.
      * @param {Event} [options.readyToRender=new Event()] The event fired when this model is ready to render.
      * @param {Boolean} [options.debugShowBoundingVolume=false] For debugging only. Draws the bounding sphere for each {@link DrawCommand} in the model.
@@ -355,8 +356,6 @@ define([
      *
      * @returns {Model} The newly created model.
      *
-     * @exception {DeveloperError} options.url is required.
-     *
      * @example
      * // Example 1. Create a model from a glTF asset
      * var model = scene.getPrimitives().add(Model.fromGltf({
@@ -422,7 +421,6 @@ define([
      * @returns {ModelNode} The node or <code>undefined</code> if no node with <code>name</code> was found.
      *
      * @exception {DeveloperError} Nodes are not loaded.  Wait for the model's readyToRender event.
-     * @exception {DeveloperError} name is required.
      *
      * @example
      * // Apply non-uniform scale to node LOD3sp
@@ -1803,9 +1801,8 @@ define([
     Model.prototype.update = function(context, frameState, commandList) {
         var scope = modelUpdateWtf();
 
-        if (!this.show ||
-            (frameState.mode !== SceneMode.SCENE3D)) {
-            return WTF.trace.leaveScope(scope);
+        if (frameState.mode !== SceneMode.SCENE3D) {
+            return;
         }
 
         if ((this._state === ModelState.NEEDS_LOAD) && defined(this.gltf)) {
@@ -1828,7 +1825,7 @@ define([
             }
         }
 
-        if (this._state === ModelState.LOADED) {
+        if ((this.show && this._state === ModelState.LOADED) || justLoaded) {
             var animated = this.activeAnimations.update(frameState) || this._cesiumAnimationsDirty;
             this._cesiumAnimationsDirty = false;
 
@@ -1865,23 +1862,28 @@ define([
             return;
         }
 
-// TODO: make this not so wasteful
-        var passes = frameState.passes;
-        var i;
-        var length;
-        var commands;
-        if (passes.render) {
-            commands = this._renderCommands;
-            length = commands.length;
-            for (i = 0; i < length; ++i) {
-                commandList.push(commands[i]);
+        // We don't check show at the top of the function since we
+        // want to be able to progressively load models when they are shown,
+        // and then have them visibile immediately when show is set to true.
+        if (this.show) {
+         // TODO: make this not so wasteful
+            var passes = frameState.passes;
+            var i;
+            var length;
+            var commands;
+            if (passes.render) {
+                commands = this._renderCommands;
+                length = commands.length;
+                for (i = 0; i < length; ++i) {
+                    commandList.push(commands[i]);
+                }
             }
-        }
-        if (passes.pick) {
-            commands = this._pickCommands;
-            length = commands.length;
-            for (i = 0; i < length; ++i) {
-                commandList.push(commands[i]);
+            if (passes.pick) {
+                commands = this._pickCommands;
+                length = commands.length;
+                for (i = 0; i < length; ++i) {
+                    commandList.push(commands[i]);
+                }
             }
         }
 

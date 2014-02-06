@@ -119,7 +119,7 @@ define([
             creditContainer.style.bottom = '0';
             creditContainer.style['text-shadow'] = '0px 0px 2px #000000';
             creditContainer.style.color = '#ffffff';
-            creditContainer.style['font-size'] = '10pt';
+            creditContainer.style['font-size'] = '10px';
             creditContainer.style['padding-right'] = '5px';
             canvas.parentNode.appendChild(creditContainer);
         }
@@ -437,14 +437,13 @@ define([
 
     function updateFrameState(scene, frameNumber, time) {
         var camera = scene._camera;
-
         var frameState = scene._frameState;
+
         frameState.mode = scene.mode;
         frameState.morphTime = scene.morphTime;
         frameState.scene2D = scene.scene2D;
         frameState.frameNumber = frameNumber;
-        frameState.previousTime = defaultValue(frameState.time, time);
-        frameState.time = time;
+        frameState.time = JulianDate.clone(time, frameState.time);
         frameState.camera = camera;
         frameState.cullingVolume = camera.frustum.computeCullingVolume(camera.positionWC, camera.directionWC, camera.upWC);
         frameState.occluder = getOccluder(scene);

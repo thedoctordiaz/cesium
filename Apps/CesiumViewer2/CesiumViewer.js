@@ -11,7 +11,7 @@ define([
         'Core/Transforms',
         'Core/Ellipsoid',
         'Scene/Model',
-        'Scene/ModelAnimationWrap',
+        'Scene/ModelAnimationLoop',
         'Core/ScreenSpaceEventHandler',
         'Core/ScreenSpaceEventType',
         'Scene/DebugModelMatrixPrimitive',
@@ -39,7 +39,7 @@ define([
         Transforms,
         Ellipsoid,
         Model,
-        ModelAnimationWrap,
+        ModelAnimationLoop,
         ScreenSpaceEventHandler,
         ScreenSpaceEventType,
         DebugModelMatrixPrimitive,
@@ -247,7 +247,7 @@ define([
                     // stopTime : (new JulianDate()).addSeconds(4),
                     // removeOnStop : true,
                     speedup : 0.5, //1.0,
-                    wrap : ModelAnimationWrap.REPEAT, // ModelAnimationWrap.MIRRORED_REPEAT,
+                    loop : ModelAnimationLoop.REPEAT, // ModelAnimationLoop.MIRRORED_REPEAT,
                     // reverse : true,
                     start : animationStart,
                     stop : animationStop
@@ -269,8 +269,9 @@ define([
             controller.enableTilt = false;
 
             // Zoom in
+            var r = Math.max(worldBoundingSphere.radius, camera.frustum.near);
             camera.controller.lookAt(
-                new Cartesian3(0.0, -worldBoundingSphere.radius * 0.25, worldBoundingSphere.radius * 2.0),
+                new Cartesian3(0.0, -r * 0.25, r * 2.0),
                 Cartesian3.ZERO,
                 Cartesian3.UNIT_Z);
         });

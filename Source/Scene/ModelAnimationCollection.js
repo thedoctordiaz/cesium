@@ -8,7 +8,7 @@ define([
         '../Core/Math',
         '../Core/Event',
         '../Core/JulianDate',
-        './ModelAnimationWrap',
+        './ModelAnimationLoop',
         './ModelAnimationState',
         './ModelAnimation',
         '../ThirdParty/wtf-trace'
@@ -21,7 +21,7 @@ define([
         CesiumMath,
         Event,
         JulianDate,
-        ModelAnimationWrap,
+        ModelAnimationLoop,
         ModelAnimationState,
         ModelAnimation,
         WTF) {
@@ -66,6 +66,7 @@ define([
 
         this._model = model;
         this._scheduledAnimations = [];
+        this._previousTime = undefined;
     };
 
     defineProperties(ModelAnimationCollection.prototype, {
@@ -97,7 +98,7 @@ define([
      * @param {Boolean} [options.removeOnStop=false] When <code>true</code>, the animation is removed after it stops playing.
      * @param {Number} [options.speedup=1.0] Values greater than <code>1.0</code> increase the speed that the animation is played relative to the scene clock speed; values less than <code>1.0</code> decrease the speed.
      * @param {Boolean} [options.reverse=false] When <code>true</code>, the animation is played in reverse.
-     * @param {ModelAnimationWrap} [options.wrap=ModelAnimationWrap.CLAMP] Determines if and how the animation is looped.
+     * @param {ModelAnimationLoop} [options.loop=ModelAnimationLoop.NONE] Determines if and how the animation is looped.
      * @param {Event} [options.start=undefined] The event fired when the animation is started.
      * @param {Event} [options.update=undefined] The event fired when on each frame when the animation is updated.
      * @param {Event} [options.stop=undefined] The event fired when the animation is stopped.
@@ -105,7 +106,7 @@ define([
      * @returns {ModelAnimation} The animation that was added to the collection.
      *
      * @exception {DeveloperError} Animations are not loaded.  Wait for the {@link Model#readyToRender} event.
-     * @exception {DeveloperError} options.name is required and must be a valid animation name.
+     * @exception {DeveloperError} options.name must be a valid animation name.
      * @exception {DeveloperError} options.speedup must be greater than zero.
      *
      * @example
@@ -137,7 +138,7 @@ define([
      *   removeOnStop : false,                 // Do not remove when animation stops (default)
      *   speedup : 2.0,                        // Play at double speed
      *   reverse : true,                       // Play in reverse
-     *   wrap : ModelAnimationWrap.REPEAT,     // Loop the animation
+     *   loop : ModelAnimationLoop.REPEAT,     // Loop the animation
      *   start : start,
      *   update : update,
      *   stop : stop
@@ -159,7 +160,7 @@ define([
 
         //>>includeStart('debug', pragmas.debug);
         if (!defined(animation)) {
-            throw new DeveloperError('options.name is required and must be a valid animation name.');
+            throw new DeveloperError('options.name must be a valid animation name.');
         }
 
         if (defined(options.speedup) && (options.speedup <= 0.0)) {
@@ -186,7 +187,7 @@ define([
      * @param {Boolean} [options.removeOnStop=false] When <code>true</code>, the animations are removed after they stop playing.
      * @param {Number} [options.speedup=1.0] Values greater than <code>1.0</code> increase the speed that the animations play relative to the scene clock speed; values less than <code>1.0</code> decrease the speed.
      * @param {Boolean} [options.reverse=false] When <code>true</code>, the animations are played in reverse.
-     * @param {ModelAnimationWrap} [options.wrap=ModelAnimationWrap.CLAMP] Determines if and how the animations are looped.
+     * @param {ModelAnimationLoop} [options.loop=ModelAnimationLoop.NONE] Determines if and how the animations are looped.
      * @param {Event} [options.start=undefined] The event fired when each animation is started.
      * @param {Event} [options.update=undefined] The event fired when on each frame when each animation is updated.
      * @param {Event} [options.stop=undefined] The event fired when each animation is stopped.
@@ -194,16 +195,27 @@ define([
      * @returns {Array} An array of {@link ModelAnimation} objects, one for each animation added to the collection.
      *
      * @exception {DeveloperError} Animations are not loaded.  Wait for the {@link Model#readyToRender} event.
-     * @exception {DeveloperError} options.name is required and must be a valid animation name.
      * @exception {DeveloperError} options.speedup must be greater than zero.
      *
      * @example
      * model.activeAnimations.addAll({
      *   speedup : 0.5,                        // Play at half-speed
-     *   wrap : ModelAnimationWrap.REPEAT      // Loop the animations
+     *   loop : ModelAnimationLoop.REPEAT      // Loop the animations
      * });
      */
     ModelAnimationCollection.prototype.addAll = function(options) {
+        options = defaultValue(options, defaultValue.EMPTY_OBJECT);
+
+        //>>includeStart('debug', pragmas.debug);
+        if (!defined(this._model._runtime.animations)) {
+            throw new DeveloperError('Animations are not loaded.  Wait for the model\'s readyToRender event.');
+        }
+
+        if (defined(options.speedup) && (options.speedup <= 0.0)) {
+            throw new DeveloperError('options.speedup must be greater than zero.');
+        }
+        //>>includeEnd('debug');
+
         options = clone(options);
 
         var scheduledAnimations = [];
@@ -246,7 +258,7 @@ define([
             var i = animations.indexOf(animation);
             if (i !== -1) {
                 animations.splice(i, 1);
-                this.animationRemoved.raiseEvent(animation);
+                this.animationRemoved.raiseEvent(this._model, animation);
                 return true;
             }
         }
@@ -264,13 +276,14 @@ define([
      * @memberof ModelAnimationCollection
      */
     ModelAnimationCollection.prototype.removeAll = function() {
+        var model = this._model;
         var animations = this._scheduledAnimations;
         var length = animations.length;
 
         this._scheduledAnimations = [];
 
         for (var i = 0; i < length; ++i) {
-            this.animationRemoved.raiseEvent(animations[i]);
+            this.animationRemoved.raiseEvent(model, animations[i]);
         }
     };
 
@@ -303,8 +316,6 @@ define([
      * @param {Number} index The zero-based index of the animation.
      *
      * @returns {ModelAnimation} The animation at the specified index.
-     *
-     * @exception {DeveloperError} index is required.
      *
      * @example
      * // Output the names of all the animations in the collection.
@@ -345,10 +356,11 @@ define([
     ModelAnimationCollection.prototype.update = function(frameState) {
         var scope = modelAnimationCollectionUpdateWtf();
 
-        if (JulianDate.equals(frameState.time, frameState.previousTime)) {
+        if (JulianDate.equals(frameState.time, this._previousTime)) {
             // Animations are currently only time-dependent so do not animate when paused or picking
             return WTF.trace.leaveScope(scope, false);
         }
+        this._previousTime = JulianDate.clone(frameState.time, this._previousTime);
 
         var animationOccured = false;
         var sceneTime = frameState.time;
@@ -384,8 +396,8 @@ define([
             // * we did not reach a user-provided stop time.
             var play = pastStartTime &&
                        ((delta <= 1.0) ||
-                        ((scheduledAnimation.wrap === ModelAnimationWrap.REPEAT) ||
-                         (scheduledAnimation.wrap === ModelAnimationWrap.MIRRORED_REPEAT))) &&
+                        ((scheduledAnimation.loop === ModelAnimationLoop.REPEAT) ||
+                         (scheduledAnimation.loop === ModelAnimationLoop.MIRRORED_REPEAT))) &&
                        (!defined(stopTime) || sceneTime.lessThanOrEquals(stopTime));
 
             if (play) {
@@ -399,9 +411,9 @@ define([
                 }
 
                 // Trunicate to [0.0, 1.0] for repeating animations
-                if (scheduledAnimation.wrap === ModelAnimationWrap.REPEAT) {
+                if (scheduledAnimation.loop === ModelAnimationLoop.REPEAT) {
                     delta = delta - Math.floor(delta);
-                } else if (scheduledAnimation.wrap === ModelAnimationWrap.MIRRORED_REPEAT) {
+                } else if (scheduledAnimation.loop === ModelAnimationLoop.MIRRORED_REPEAT) {
                     var floor = Math.floor(delta);
                     var fract = delta - floor;
                     // When even use (1.0 - fract) to mirror repeat
@@ -413,7 +425,7 @@ define([
                 }
 
                 var localAnimationTime = delta * duration * scheduledAnimation.speedup;
-                // Clamp in case float-point roundoff goes outside the animation's first or last keyframe
+                // Clamp in case floating-point roundoff goes outside the animation's first or last keyframe
                 localAnimationTime = CesiumMath.clamp(localAnimationTime, runtimeAnimation.startTime, runtimeAnimation.stopTime);
 
                 animateChannels(runtimeAnimation, localAnimationTime);

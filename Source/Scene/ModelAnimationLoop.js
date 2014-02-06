@@ -10,7 +10,7 @@ define(function() {
      *
      * @see ModelAnimationCollection#add
      */
-    var ModelAnimationWrap = {
+    var ModelAnimationLoop = {
         /**
          * Play the animation once; do not loop it.
          *
@@ -18,7 +18,7 @@ define(function() {
          * @constant
          * @default 0
          */
-        CLAMP : 0,
+        NONE : 0,
 
         /**
          * Loop the animation playing it from the start immediately after it stops.
@@ -39,5 +39,5 @@ define(function() {
         MIRRORED_REPEAT : 2
     };
 
-    return ModelAnimationWrap;
+    return ModelAnimationLoop;
 });
