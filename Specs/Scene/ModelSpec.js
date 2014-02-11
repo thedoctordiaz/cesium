@@ -14,6 +14,7 @@ defineSuite([
          'Core/Transforms',
          'Core/Event',
          'Core/JulianDate',
+         'Core/PrimitiveType',
          'Scene/ModelAnimationLoop'
      ], function(
          Model,
@@ -30,19 +31,19 @@ defineSuite([
          Transforms,
          Event,
          JulianDate,
+         PrimitiveType,
          ModelAnimationLoop) {
     "use strict";
     /*global jasmine,describe,xdescribe,it,xit,expect,beforeEach,afterEach,beforeAll,afterAll,spyOn,runs,waits,waitsFor*/
 
-// TODO: Tests for all uniform semantics
-// TODO: Tests for all uniform types
-
     var duckUrl = './Data/Models/duck/duck.json';
+    var customDuckUrl = './Data/Models/customDuck/duck.json';
     var superMurdochUrl = './Data/Models/SuperMurdoch/SuperMurdoch.json';
     var animBoxesUrl = './Data/Models/anim-test-1-boxes/anim-test-1-boxes.json';
     var riggedFigureUrl = './Data/Models/rigged-figure-test/rigged-figure-test.json';
 
     var duckModel;
+    var customDuckModel;
     var superMurdochModel;
     var animBoxesModel;
     var riggedFigureModel;
@@ -153,8 +154,6 @@ defineSuite([
     });
 
     it('renders bounding volume', function() {
-        expect(scene.renderForSpecs()).toEqual([0, 0, 0, 255]);
-
         duckModel.show = true;
         duckModel.debugShowBoundingVolume = true;
         duckModel.zoomTo();
@@ -169,7 +168,14 @@ defineSuite([
         duckModel.show = true;
         duckModel.debugWireframe = true;
         duckModel.zoomTo();
-        expect(scene.renderForSpecs()).not.toEqual([0, 0, 0, 255]);
+        scene.renderForSpecs();
+
+        var commands = duckModel._renderCommands;
+        var length = commands.length;
+        for (var i = 0; i < length; ++i) {
+            expect(commands[i].primitiveType).toEqual(PrimitiveType.LINES);
+        }
+
         duckModel.show = false;
         duckModel.debugWireframe = false;
     });
@@ -206,19 +212,6 @@ defineSuite([
 
         var pick = scene.pick(new Cartesian2(0, 0));
         expect(pick).not.toBeDefined();
-    });
-
-// TODO: be able to set allowPicking?
-    xit('is not picked (allowPicking === false)', function() {
-        duckModel.show = true;
-        duckModel.allowPicking = false;
-        duckModel.zoomTo();
-
-        var pick = scene.pick(new Cartesian2(0, 0));
-        expect(pick).not.toBeDefined();
-
-        duckModel.show = false;
-        duckModel.allowPicking = true;
     });
 
     it('getNode throws when model is not loaded', function() {
@@ -284,6 +277,21 @@ defineSuite([
             primitives.remove(m);
             expect(m.isDestroyed()).toEqual(true);
         });
+    });
+
+    ///////////////////////////////////////////////////////////////////////////
+
+    it('loads customDuck', function() {
+        customDuckModel = loadModel(customDuckUrl);
+    });
+
+    it('renders customDuckModel (NPOT textures and all uniform semantics)', function() {
+        expect(scene.renderForSpecs()).toEqual([0, 0, 0, 255]);
+
+        customDuckModel.show = true;
+        customDuckModel.zoomTo();
+        expect(scene.renderForSpecs()).not.toEqual([0, 0, 0, 255]);
+        customDuckModel.show = false;
     });
 
     ///////////////////////////////////////////////////////////////////////////
@@ -369,9 +377,8 @@ defineSuite([
     });
 
     it('addAll throws when speedup is less than or equal to zero.', function() {
-        var m = new Model();
         expect(function() {
-            return m.activeAnimations.addAll({
+            return animBoxesModel.activeAnimations.addAll({
                 speedup : 0.0
             });
         }).toThrowDeveloperError();
@@ -409,6 +416,7 @@ defineSuite([
         expect(animations.remove(a)).toEqual(true);
         expect(animations.remove(a)).toEqual(false);
         expect(animations.remove()).toEqual(false);
+        expect(animations.contains(a)).toEqual(false);
         expect(animations.length).toEqual(0);
         expect(spyRemove).toHaveBeenCalledWith(animBoxesModel, a);
         animations.animationRemoved.removeEventListener(spyRemove);
@@ -445,6 +453,10 @@ defineSuite([
         expect(function() {
             return m.activeAnimations.get();
         }).toThrowDeveloperError();
+    });
+
+    it('contains(undefined) returns false', function() {
+        expect(animBoxesModel.activeAnimations.contains(undefined)).toEqual(false);
     });
 
     it('raises animation start, update, and stop events when removeOnStop is true', function() {

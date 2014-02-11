@@ -35,7 +35,7 @@ define([
         './ModelAnimationCollection',
         './ModelNode',
         './SceneMode',
-        './gltfDefaults',
+        '../ThirdParty/gltfDefaults',
         '../ThirdParty/wtf-trace'
     ], function(
         combine,
@@ -615,7 +615,7 @@ define([
                     // Computed transforms
                     transformToRoot : new Matrix4(),
                     computedMatrix : new Matrix4(),
-                    dirtyNumber : 0,               // The frame this node was made dirty by an animation; for graph traversal
+                    dirtyNumber : 0,                    // The frame this node was made dirty by an animation; for graph traversal
 
                     // Rendering
                     commands : [],                      // empty for transform, light, and camera nodes
@@ -1866,7 +1866,7 @@ define([
         // want to be able to progressively load models when they are shown,
         // and then have them visibile immediately when show is set to true.
         if (this.show) {
-         // TODO: make this not so wasteful
+// TODO: make this not so wasteful
             var passes = frameState.passes;
             var i;
             var length;
@@ -1886,6 +1886,7 @@ define([
                 }
             }
         }
+// END TODO
 
         return WTF.trace.leaveScope(scope);
     };

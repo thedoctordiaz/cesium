@@ -984,7 +984,6 @@ define([
      *
      * @returns {Object} The typed array in the attribute's format or undefined if the is no instance with id.
      *
-     * @exception {DeveloperError} id is required.
      * @exception {DeveloperError} must call update before calling getGeometryInstanceAttributes.
      *
      * @example
