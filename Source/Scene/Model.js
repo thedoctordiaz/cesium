@@ -1460,7 +1460,7 @@ define([
                     var jointUniformMap = {};
                     jointUniformMap[um.jointMatrixUniformName] = createJointMatricesFunction(runtimeNode);
 
-                    uniformMap = combine([uniformMap, jointUniformMap], false, false);
+                    uniformMap = combine(uniformMap, jointUniformMap);
                 }
 
                 // GLTF_SPEC: Offical means to determine translucency. https://github.com/KhronosGroup/glTF/issues/105
@@ -1500,10 +1500,10 @@ define([
                     var pickId = context.createPickId(owner);
                     pickIds.push(pickId);
 
-                    var pickUniformMap = combine([
+                    var pickUniformMap = combine(
                         uniformMap, {
                             czm_pickColor : createPickColorFunction(pickId.color)
-                        }], false, false);
+                        });
 
                     pickCommand = new DrawCommand();
                     pickCommand.boundingVolume = new BoundingSphere(); // updated in update()
@@ -1866,7 +1866,7 @@ define([
         // want to be able to progressively load models when they are shown,
         // and then have them visibile immediately when show is set to true.
         if (this.show) {
-// TODO: make this not so wasteful
+// PERFORMANCE_IDEA: This is terriable
             var passes = frameState.passes;
             var i;
             var length;
