@@ -112,7 +112,7 @@ define([
      *     material : Cesium.Material.fromType('Checkerboard')
      *   })
      * });
-     * scene.getPrimitives().add(primitive);
+     * scene.primitives.add(primitive);
      *
      * // 2. Draw different instances each with a unique color
      * var extentInstance = new Cesium.GeometryInstance({
@@ -145,7 +145,7 @@ define([
      *   geometryInstances : [extentInstance, ellipsoidInstance],
      *   appearance : new Cesium.PerInstanceColorAppearance()
      * });
-     * scene.getPrimitives().add(primitive);
+     * scene.primitives.add(primitive);
      *
      * // 3. Create the geometry on the main thread.
      * var primitive = new Cesium.Primitive({
@@ -163,7 +163,7 @@ define([
      *   }),
      *   appearance : new Cesium.PerInstanceColorAppearance()
      * });
-     * scene.getPrimitives().add(primitive);
+     * scene.primitives.add(primitive);
      *
      * @see GeometryInstance
      * @see Appearance
@@ -727,7 +727,7 @@ define([
                 this.geometryInstances = undefined;
             }
 
-            this._geomtries = undefined;
+            this._geometries = undefined;
             this._createdGeometries = undefined;
             this._state = PrimitiveState.COMPLETE;
         }

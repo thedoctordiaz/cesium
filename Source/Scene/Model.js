@@ -34,6 +34,7 @@ define([
         './ModelAnimationCache',
         './ModelAnimationCollection',
         './ModelNode',
+        './ModelMesh',
         './SceneMode',
         '../ThirdParty/gltfDefaults',
         '../ThirdParty/wtf-trace'
@@ -72,6 +73,7 @@ define([
         ModelAnimationCache,
         ModelAnimationCollection,
         ModelNode,
+        ModelMesh,
         SceneMode,
         gltfDefaults,
         WTF) {
@@ -319,8 +321,10 @@ define([
         this._runtime = {
             animations : undefined,
             rootNodes : undefined,
-            nodes : undefined,
-            skinnedNodes : undefined
+            nodes : undefined,          // Indexed with the node property's name, i.e., glTF id
+            nodesByName : undefined,    // Indexed with name property in the node
+            skinnedNodes : undefined,
+            meshesByName : undefined    // Indexed with the name property in the mesh
         };
         this._rendererResources = {
             buffers : {},
@@ -358,7 +362,7 @@ define([
      *
      * @example
      * // Example 1. Create a model from a glTF asset
-     * var model = scene.getPrimitives().add(Model.fromGltf({
+     * var model = scene.primitives.add(Model.fromGltf({
      *   url : './duck/duck.json'
      * }));
      *
@@ -373,7 +377,7 @@ define([
      *   model.activeAnimations.addAll();
      * });
      *
-     * var model = scene.getPrimitives().add(Model.fromGltf({
+     * var model = scene.primitives.add(Model.fromGltf({
      *   url : './duck/duck.json',
      *   show : true,                     // default
      *   modelMatrix : modelMatrix,
@@ -411,7 +415,7 @@ define([
     };
 
     /**
-     * Returns the glTF node with the given <code>name</code>.  This is used to
+     * Returns the glTF node with the given <code>name</code> property.  This is used to
      * modify a node's transform for animation outside of glTF animations.
      *
      * @memberof Model
@@ -421,6 +425,7 @@ define([
      * @returns {ModelNode} The node or <code>undefined</code> if no node with <code>name</code> was found.
      *
      * @exception {DeveloperError} Nodes are not loaded.  Wait for the model's readyToRender event.
+     * @exception {DeveloperError} name is required.
      *
      * @example
      * // Apply non-uniform scale to node LOD3sp
@@ -438,8 +443,34 @@ define([
         }
         //>>includeEnd('debug');
 
-        var node = this._runtime.nodes[name];
+        var node = this._runtime.nodesByName[name];
         return defined(node) ? node.publicNode : undefined;
+    };
+
+    /**
+     * Returns the glTF mesh with the given <code>name</code> property.
+     *
+     * @memberof Model
+     *
+     * @param {String} name The glTF name of the mesh.
+     *
+     * @returns {ModelMesh} The mesh or <code>undefined</code> if no node with <code>name</code> was found.
+     *
+     * @exception {DeveloperError} Mesh are not loaded.  Wait for the model's readyToRender event.
+     * @exception {DeveloperError} name is required.
+     */
+    Model.prototype.getMesh = function(name) {
+        //>>includeStart('debug', pragmas.debug);
+        if (this._state !== ModelState.LOADED) {
+            throw new DeveloperError('Meshes are not loaded.  Wait for the model\'s readyToRender event.');
+        }
+
+        if (!defined(name)) {
+            throw new DeveloperError('name is required.');
+        }
+        //>>includeEnd('debug');
+
+        return this._runtime.meshesByName[name];
     };
 
     var scratchSphereCenter = new Cartesian3();
@@ -596,6 +627,7 @@ define([
 
     function parseNodes(model) {
         var runtimeNodes = {};
+        var runtimeNodesByName = {};
         var skinnedNodes = [];
 
         var skinnedNodesNames = model._loadResources.skinnedNodesNames;
@@ -639,6 +671,7 @@ define([
                 runtimeNode.publicNode = new ModelNode(model, node, runtimeNode);
 
                 runtimeNodes[name] = runtimeNode;
+                runtimeNodesByName[node.name] = runtimeNode;
 
                 if (defined(node.instanceSkin)) {
                     skinnedNodesNames.push(name);
@@ -648,7 +681,23 @@ define([
         }
 
         model._runtime.nodes = runtimeNodes;
+        model._runtime.nodesByName = runtimeNodesByName;
         model._runtime.skinnedNodes = skinnedNodes;
+    }
+
+    function parseMeshes(model) {
+        var runtimeMeshes = {};
+
+        var meshes = model.gltf.meshes;
+
+        for (var name in meshes) {
+            if (meshes.hasOwnProperty(name)) {
+                var mesh = meshes[name];
+                runtimeMeshes[mesh.name] = new ModelMesh(mesh.name);
+            }
+        }
+
+        model._runtime.meshesByName = runtimeMeshes;
     }
 
     function parse(model) {
@@ -657,6 +706,7 @@ define([
         parseShaders(model);
         parsePrograms(model);
         parseTextures(model);
+        parseMeshes(model);
         parseNodes(model);
     }
 
@@ -1406,6 +1456,7 @@ define([
         var pickCommands = model._pickCommands;
         var pickIds = model._pickIds;
         var allowPicking = model.allowPicking;
+        var runtimeMeshes = model._runtime.meshesByName;
 
         var debugShowBoundingVolume = model.debugShowBoundingVolume;
 
@@ -1469,14 +1520,8 @@ define([
                 var owner = {
                     primitive : model,
                     id : model.id,
-                    gltf : {
-                        node : runtimeNode.publicNode,
-
-// TODO: Expose direct glTF types like we do here?
-                        mesh : mesh,
-                        primitive : primitive,
-                        primitiveIndex : i
-                    }
+                    node : runtimeNode.publicNode,
+                    mesh : runtimeMeshes[mesh.name]
                 };
 
                 var command = new DrawCommand();

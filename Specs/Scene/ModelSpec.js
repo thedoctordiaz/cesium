@@ -53,7 +53,7 @@ defineSuite([
 
     beforeAll(function() {
         scene = createScene();
-        primitives = scene.getPrimitives();
+        primitives = scene.primitives;
     });
 
     afterAll(function() {
@@ -86,11 +86,11 @@ defineSuite([
                 var transform = Transforms.eastNorthUpToFixedFrame(center);
 
                 // View in east-north-up frame
-                var camera = scene.getCamera();
+                var camera = scene.camera;
                 camera.transform = transform;
                 camera.controller.constrainedAxis = Cartesian3.UNIT_Z;
 
-                var controller = scene.getScreenSpaceCameraController();
+                var controller = scene.screenSpaceCameraController;
                 controller.setEllipsoid(Ellipsoid.UNIT_SPHERE);
                 controller.enableTilt = false;
 
@@ -187,7 +187,8 @@ defineSuite([
         var pick = scene.pick(new Cartesian2(0, 0));
         expect(pick.primitive).toEqual(duckModel);
         expect(pick.id).toEqual(duckUrl);
-        expect(pick.gltf.node).toEqual(duckModel.getNode('LOD3sp'));
+        expect(pick.node).toEqual(duckModel.getNode('LOD3sp'));
+        expect(pick.mesh).toEqual(duckModel.getMesh('LOD3spShape'));
 
         duckModel.show = false;
     });
@@ -201,7 +202,6 @@ defineSuite([
         var pick = scene.pick(new Cartesian2(0, 0));
         expect(pick.primitive).toEqual(duckModel);
         expect(pick.id).toEqual('id');
-        expect(pick.gltf.node).toEqual(duckModel.getNode('LOD3sp'));
 
         duckModel.id = oldId;
         duckModel.show = false;
@@ -248,6 +248,29 @@ defineSuite([
         duckModel.show = false;
 
         expect(duckModel._cesiumAnimationsDirty).toEqual(false);
+    });
+
+    it('getMesh throws when model is not loaded', function() {
+        var m = new Model();
+        expect(function() {
+            return m.getMesh('gltf-mesh-name');
+        }).toThrowDeveloperError();
+    });
+
+    it('getMesh throws when name is not provided', function() {
+        expect(function() {
+            return duckModel.getMesh();
+        }).toThrowDeveloperError();
+    });
+
+    it('getMesh returns undefined when mesh does not exist', function() {
+        expect(duckModel.getNode('name-of-mesh-that-does-not-exist')).not.toBeDefined();
+    });
+
+    it('getMesh returns returns a mesh', function() {
+        var mesh = duckModel.getMesh('LOD3spShape');
+        expect(mesh).toBeDefined();
+        expect(mesh.name).toEqual('LOD3spShape');
     });
 
     it('computeWorldBoundingSphere throws when model is not loaded', function() {
@@ -316,7 +339,8 @@ defineSuite([
         var pick = scene.pick(new Cartesian2(0, 0));
         expect(pick.primitive).toEqual(superMurdochModel);
         expect(pick.id).toEqual(superMurdochUrl);
-        expect(pick.gltf.node).toBeDefined();
+        expect(pick.node).toBeDefined();
+        expect(pick.mesh).toBeDefined();
 
         superMurdochModel.show = false;
     });
