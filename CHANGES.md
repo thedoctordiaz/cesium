@@ -36,6 +36,7 @@ Beta Releases
       * `getEllipsoid` -> `ellipsoid`
       * `getCameraPosition`, `setCameraPosition` -> `cameraPosition`
   * Removed `Scene.getUniformState()`.  Use `scene.context.getUniformState()`
+  * `PixelDatatype` properties are now JavaScript numbers, not `Enumeration` instances.
 * Added new `SelectionIndicator` and `InfoBox` widgets to `Viewer`, activated by `viewerDynamicObjectMixin`.
 * Fix developer error when zooming in 2D. If the zoom would create an invalid frustum, nothing is done. [#1432](https://github.com/AnalyticalGraphicsInc/cesium/issues/1432)
 * `OpenStreetMapImageryProvider` now supports imagery with a minimum level.
@@ -49,11 +50,8 @@ Beta Releases
 * `BingMapsImageryProvider` now uses HTTPS by default for metadata and tiles when the document is loaded over HTTPS.
 * `RequestErrorEvent` now includes the headers that were returned with the error response.
 * Added `CesiumInspector` widget for graphics debugging.  In Cesium Viewer, it is enabled by using the query parameter `inspector=true`. 
-<<<<<<< HEAD
 * Added `Model` for drawing 3D models using glTF.
 * Added `czm_inverseViewProjection` and `czm_inverseModelViewProjection` automatic GLSL uniform.
-=======
->>>>>>> wtf
 
 ### b25 - 2014-02-03
 
