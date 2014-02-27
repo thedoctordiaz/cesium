@@ -11,6 +11,7 @@ define([
         '../Core/RuntimeError',
         '../Core/PrimitiveType',
         '../Core/Geometry',
+        '../Core/GeometryAttribute',
         '../Core/createGuid',
         '../Core/Matrix4',
         '../Core/Math',
@@ -48,6 +49,7 @@ define([
         RuntimeError,
         PrimitiveType,
         Geometry,
+        GeometryAttribute,
         createGuid,
         Matrix4,
         CesiumMath,
@@ -1106,6 +1108,8 @@ define([
         return this._gl.drawingBufferWidth;
     };
 
+    var nextShaderProgramId = 0;
+
     /**
      * Creates a shader program given the GLSL source for a vertex and fragment shader.
      * <br /><br />
@@ -1168,7 +1172,9 @@ define([
      * sp = context.createShaderProgram(vs, fs, attributes);
      */
     Context.prototype.createShaderProgram = function(vertexShaderSource, fragmentShaderSource, attributeLocations) {
-        return new ShaderProgram(this._gl, this._logShaderCompilation, vertexShaderSource, fragmentShaderSource, attributeLocations);
+        var shaderProgram = new ShaderProgram(this._gl, this._logShaderCompilation, vertexShaderSource, fragmentShaderSource, attributeLocations);
+        shaderProgram.id = nextShaderProgramId++;
+        return shaderProgram;
     };
 
     function createBuffer(gl, bufferTarget, typedArrayOrSizeInBytes, usage) {
@@ -2162,8 +2168,8 @@ define([
         scratchBackBufferArray = [WebGLRenderingContext.BACK];
     }
 
-    function beginDraw(context, framebuffer, drawCommand, passState) {
-        var rs = defined(drawCommand.renderState) ? drawCommand.renderState : context._defaultRenderState;
+    function beginDraw(context, framebuffer, drawCommand, passState, renderState, shaderProgram) {
+        var rs = defaultValue(defaultValue(renderState, drawCommand.renderState), context._defaultRenderState);
 
         //>>includeStart('debug', pragmas.debug);
         if (defined(framebuffer) && rs.depthTest) {
@@ -2190,14 +2196,14 @@ define([
             }
         }
 
-        var sp = drawCommand.shaderProgram;
+        var sp = defaultValue(shaderProgram, drawCommand.shaderProgram);
         sp._bind();
         context._maxFrameTextureUnitIndex = Math.max(context._maxFrameTextureUnitIndex, sp.maximumTextureUnitIndex);
 
         applyRenderState(context, rs, passState);
     }
 
-    function continueDraw(context, drawCommand) {
+    function continueDraw(context, drawCommand, shaderProgram) {
         var primitiveType = drawCommand.primitiveType;
         var va = drawCommand.vertexArray;
         var offset = drawCommand.offset;
@@ -2222,7 +2228,8 @@ define([
         //>>includeEnd('debug');
 
         context._us.setModel(defaultValue(drawCommand.modelMatrix, Matrix4.IDENTITY));
-        drawCommand.shaderProgram._setUniforms(drawCommand.uniformMap, context._us, context._validateSP);
+        var sp = defaultValue(shaderProgram, drawCommand.shaderProgram);
+        sp._setUniforms(drawCommand.uniformMap, context._us, context._validateSP);
 
         var indexBuffer = va.getIndexBuffer();
 
@@ -2254,7 +2261,9 @@ define([
      * @memberof Context
      *
      * @param {DrawCommand} drawCommand The command with which to draw.
-     * @param {PassState} [passState] The state for the current rendering pass
+     * @param {PassState} [passState] The state for the current rendering pass.
+     * @param {RenderState} [renderState] The render state that will override the render state of the command.
+     * @param {ShaderProgram} [shaderProgram] The shader program that will override the shader program of the command.
      *
      * @memberof Context
      *
@@ -2289,7 +2298,7 @@ define([
      * @see Context#createFramebuffer
      * @see Context#createRenderState
      */
-    Context.prototype.draw = function(drawCommand, passState) {
+    Context.prototype.draw = function(drawCommand, passState, renderState, shaderProgram) {
         //>>includeStart('debug', pragmas.debug);
         if (!defined(drawCommand)) {
             throw new DeveloperError('drawCommand is required.');
@@ -2304,8 +2313,8 @@ define([
         // The command's framebuffer takes presidence over the pass' framebuffer, e.g., for off-screen rendering.
         var framebuffer = defaultValue(drawCommand.framebuffer, passState.framebuffer);
 
-        beginDraw(this, framebuffer, drawCommand, passState);
-        continueDraw(this, drawCommand);
+        beginDraw(this, framebuffer, drawCommand, passState, renderState, shaderProgram);
+        continueDraw(this, drawCommand, shaderProgram);
         endDraw(this, framebuffer);
     };
 
@@ -2644,6 +2653,57 @@ define([
         }
 
         return this.createVertexArray(vaAttributes, indexBuffer);
+    };
+
+    /**
+     * @private
+     */
+    Context.prototype.getViewportQuadVertexArray = function() {
+        // Per-context cache for viewport quads
+        var vertexArray = this.cache.viewportQuad_vertexArray;
+
+        if (defined(vertexArray)) {
+            return vertexArray;
+        }
+
+        var geometry = new Geometry({
+            attributes : {
+                position : new GeometryAttribute({
+                    componentDatatype : ComponentDatatype.FLOAT,
+                    componentsPerAttribute : 2,
+                    values : [
+                       -1.0, -1.0,
+                        1.0, -1.0,
+                        1.0,  1.0,
+                       -1.0,  1.0
+                    ]
+                }),
+
+                textureCoordinates : new GeometryAttribute({
+                    componentDatatype : ComponentDatatype.FLOAT,
+                    componentsPerAttribute : 2,
+                    values : [
+                        0.0, 0.0,
+                        1.0, 0.0,
+                        1.0, 1.0,
+                        0.0, 1.0
+                    ]
+                })
+            },
+            primitiveType : PrimitiveType.TRIANGLES
+        });
+
+        vertexArray = this.createVertexArrayFromGeometry({
+            geometry : geometry,
+            attributeLocations : {
+                position : 0,
+                textureCoordinates : 1
+            },
+            bufferUsage : BufferUsage.STATIC_DRAW
+        });
+
+        this.cache.viewportQuad_vertexArray = vertexArray;
+        return vertexArray;
     };
 
     /**

@@ -99,11 +99,15 @@ define([
         clear.execute(context);
     };
 
-    SunPostProcess.prototype.execute = function(context) {
+    SunPostProcess.prototype.execute = function(context, framebuffer) {
         this._downSampleCommand.execute(context, this._downSamplePassState);
         this._brightPassCommand.execute(context, this._downSamplePassState);
         this._blurXCommand.execute(context, this._downSamplePassState);
         this._blurYCommand.execute(context, this._downSamplePassState);
+
+        this._fullScreenCommand.framebuffer = framebuffer;
+        this._blendCommand.framebuffer = framebuffer;
+
         this._fullScreenCommand.execute(context);
         this._blendCommand.execute(context, this._upSamplePassState);
     };
@@ -112,51 +116,6 @@ define([
         position : 0,
         textureCoordinates : 1
     };
-
-    function getVertexArray(context) {
-        // Per-context cache for viewport quads
-        var vertexArray = context.cache.viewportQuad_vertexArray;
-
-        if (defined(vertexArray)) {
-            return vertexArray;
-        }
-
-        var geometry = new Geometry({
-            attributes : {
-                position : new GeometryAttribute({
-                    componentDatatype : ComponentDatatype.FLOAT,
-                    componentsPerAttribute : 2,
-                    values : [
-                       -1.0, -1.0,
-                        1.0, -1.0,
-                        1.0,  1.0,
-                       -1.0,  1.0
-                    ]
-                }),
-
-                textureCoordinates : new GeometryAttribute({
-                    componentDatatype : ComponentDatatype.FLOAT,
-                    componentsPerAttribute : 2,
-                    values : [
-                        0.0, 0.0,
-                        1.0, 0.0,
-                        1.0, 1.0,
-                        0.0, 1.0
-                    ]
-                })
-            },
-            primitiveType : PrimitiveType.TRIANGLES
-        });
-
-        vertexArray = context.createVertexArrayFromGeometry({
-            geometry : geometry,
-            attributeLocations : attributeLocations,
-            bufferUsage : BufferUsage.STATIC_DRAW
-        });
-
-        context.cache.viewportQuad_vertexArray = vertexArray;
-        return vertexArray;
-    }
 
     var viewportBoundingRectangle  = new BoundingRectangle();
     var downSampleViewportBoundingRectangle = new BoundingRectangle();
@@ -178,7 +137,7 @@ define([
             this._clearFBO2Command.color = new Color();
 
             var primitiveType = PrimitiveType.TRIANGLE_FAN;
-            var vertexArray = getVertexArray(context);
+            var vertexArray = context.getViewportQuadVertexArray();
 
             var downSampleCommand = this._downSampleCommand = new DrawCommand();
             downSampleCommand.owner = this;
