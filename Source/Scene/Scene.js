@@ -899,9 +899,9 @@ define([
         functionDestinationAlpha : BlendFunction.ONE_MINUS_SOURCE_ALPHA
     };
 
-    function getTranslucentRenderState(context, translucentBlending, cache, renderState) {
+    function getTranslucentRenderState(context, translucentBlending, cache, renderState, forceUpdate) {
         var translucentState = cache[renderState.id];
-        if (!defined(translucentState)) {
+        if (!defined(translucentState) || forceUpdate) {
             var depthMask = renderState.depthMask;
             var blending = renderState.blending;
 
@@ -918,16 +918,16 @@ define([
         return translucentState;
     }
 
-    function getTranslucentMRTRenderState(scene, renderState) {
-        return getTranslucentRenderState(scene._context, translucentMRTBlend, scene._translucentRenderStateCache, renderState);
+    function getTranslucentMRTRenderState(scene, renderState, forceUpdate) {
+        return getTranslucentRenderState(scene._context, translucentMRTBlend, scene._translucentRenderStateCache, renderState, forceUpdate);
     }
 
-    function getTranslucentColorRenderState(scene, renderState) {
-        return getTranslucentRenderState(scene._context, translucentColorBlend, scene._translucentRenderStateCache, renderState);
+    function getTranslucentColorRenderState(scene, renderState, forceUpdate) {
+        return getTranslucentRenderState(scene._context, translucentColorBlend, scene._translucentRenderStateCache, renderState, forceUpdate);
     }
 
-    function getTranslucentAlphaRenderState(scene, renderState) {
-        return getTranslucentRenderState(scene._context, translucentAlphaBlend, scene._alphaRenderStateCache, renderState);
+    function getTranslucentAlphaRenderState(scene, renderState, forceUpdate) {
+        return getTranslucentRenderState(scene._context, translucentAlphaBlend, scene._alphaRenderStateCache, renderState, forceUpdate);
     }
 
     var mrtShaderSource =
@@ -947,10 +947,10 @@ define([
         '    float ai = czm_gl_FragColor.a;\n' +
         '    gl_FragColor = vec4(ai);\n';
 
-    function getTranslucentShaderProgram(scene, shaderProgram, cache, source, updateShader) {
+    function getTranslucentShaderProgram(scene, shaderProgram, cache, source, forceUpdate) {
         var id = shaderProgram.id;
         var shader = cache[id];
-        if (!defined(shader) || updateShader) {
+        if (!defined(shader) || forceUpdate) {
             var attributeLocations = shaderProgram._attributeLocations;
             var vs = shaderProgram.vertexShaderSource;
             var fs = shaderProgram.fragmentShaderSource;
@@ -1046,16 +1046,16 @@ define([
         return shader;
     }
 
-    function getTranslucentMRTShaderProgram(scene, shaderProgram, updateShader) {
-        return getTranslucentShaderProgram(scene, shaderProgram, scene._translucentShaderCache, mrtShaderSource, updateShader);
+    function getTranslucentMRTShaderProgram(scene, shaderProgram, forceUpdate) {
+        return getTranslucentShaderProgram(scene, shaderProgram, scene._translucentShaderCache, mrtShaderSource, forceUpdate);
     }
 
-    function getTranslucentColorShaderProgram(scene, shaderProgram, updateShader) {
-        return getTranslucentShaderProgram(scene, shaderProgram, scene._translucentShaderCache, colorShaderSource, updateShader);
+    function getTranslucentColorShaderProgram(scene, shaderProgram, forceUpdate) {
+        return getTranslucentShaderProgram(scene, shaderProgram, scene._translucentShaderCache, colorShaderSource, forceUpdate);
     }
 
-    function getTranslucentAlphaShaderProgram(scene, shaderProgram, updateShader) {
-        return getTranslucentShaderProgram(scene, shaderProgram, scene._alphaShaderCache, alphaShaderSource, updateShader);
+    function getTranslucentAlphaShaderProgram(scene, shaderProgram, forceUpdate) {
+        return getTranslucentShaderProgram(scene, shaderProgram, scene._alphaShaderCache, alphaShaderSource, forceUpdate);
     }
 
     function executeTranslucentCommandsInOrder(scene, passState, frustumCommands) {
@@ -1067,7 +1067,7 @@ define([
         }
     }
 
-    function executeTranslucentCommandsSorted(scene, passState, frustumCommands, updateShader) {
+    function executeTranslucentCommandsSorted(scene, passState, frustumCommands, forceUpdate) {
         var command;
         var renderState;
         var shaderProgram;
@@ -1082,8 +1082,8 @@ define([
 
         for (j = 0; j < length; ++j) {
             command = commands[j];
-            renderState = getTranslucentColorRenderState(scene, command.renderState);
-            shaderProgram = getTranslucentColorShaderProgram(scene, command.shaderProgram, updateShader);
+            renderState = getTranslucentColorRenderState(scene, command.renderState, forceUpdate);
+            shaderProgram = getTranslucentColorShaderProgram(scene, command.shaderProgram, forceUpdate);
             executeCommand(command, scene, context, passState, renderState, shaderProgram);
         }
 
@@ -1091,15 +1091,15 @@ define([
 
         for (j = 0; j < length; ++j) {
             command = commands[j];
-            renderState = getTranslucentAlphaRenderState(scene, command.renderState);
-            shaderProgram = getTranslucentAlphaShaderProgram(scene, command.shaderProgram, updateShader);
+            renderState = getTranslucentAlphaRenderState(scene, command.renderState, forceUpdate);
+            shaderProgram = getTranslucentAlphaShaderProgram(scene, command.shaderProgram, forceUpdate);
             executeCommand(command, scene, context, passState, renderState, shaderProgram);
         }
 
         passState.framebuffer = framebuffer;
     }
 
-    function executeTranslucentCommandsSortedMRT(scene, passState, frustumCommands, updateShader) {
+    function executeTranslucentCommandsSortedMRT(scene, passState, frustumCommands, forceUpdate) {
         var context = scene._context;
         var framebuffer = passState.framebuffer;
         var commands = frustumCommands.translucentCommands;
@@ -1108,8 +1108,8 @@ define([
         passState.framebuffer = scene._translucentFBO;
         for (var j = 0; j < length; ++j) {
             var command = commands[j];
-            var renderState = getTranslucentMRTRenderState(scene, command.renderState);
-            var shaderProgram = getTranslucentMRTShaderProgram(scene, command.shaderProgram, updateShader);
+            var renderState = getTranslucentMRTRenderState(scene, command.renderState, forceUpdate);
+            var shaderProgram = getTranslucentMRTShaderProgram(scene, command.shaderProgram, forceUpdate);
             executeCommand(command, scene, context, passState, renderState, shaderProgram);
         }
 
@@ -1222,7 +1222,7 @@ define([
             executeTranslucentCommands = executeTranslucentCommandsInOrder;
         }
 
-        var updateShader = scene._weightFunction !== scene.weightFunction;
+        var forceUpdate = scene._weightFunction !== scene.weightFunction || methodChanged;
         scene._weightFunction = scene.weightFunction;
 
         var frustumCommandsList = scene._frustumCommandsList;
@@ -1250,7 +1250,7 @@ define([
             frustum.near = frustumCommands.near;
             us.updateFrustum(frustum);
 
-            executeTranslucentCommands(scene, passState, frustumCommands, updateShader);
+            executeTranslucentCommands(scene, passState, frustumCommands, forceUpdate);
         }
 
         if (sortTranslucent) {
