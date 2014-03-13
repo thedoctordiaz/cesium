@@ -208,8 +208,9 @@ define([
         /**
          * @private
          */
-        this.depthWeightFunction = '';
-        this._depthWeightFunction = '';
+        this.weightFunction = 'pow(a + 0.01, 4.0) + max(1e-2, min(3.0 * 1e3, 100.0 / (1e-5 + pow(abs(z) / 10.0, 3.0) + pow(abs(z) / 200.0, 6.0))))';
+        this._weightFunction = this.weightFunction;
+        this._errorMessage = undefined;
 
         /**
          * The {@link SkyBox} used to draw the stars.
@@ -962,11 +963,11 @@ define([
                 '}\n';
 
             var weightFunction = '';
-            if (defined(scene.depthWeightFunction) && scene.depthWeightFunction.length > 0) {
+            if (defined(scene.weightFunction) && scene.weightFunction.length > 0) {
                 weightFunction =
                     'float oit_alphaWeight(float z, float a)\n' +
                     '{\n' +
-                    '    return ' + scene.depthWeightFunction + ';\n' +
+                    '    return ' + scene.weightFunction + ';\n' +
                     '}\n';
             }
 
@@ -995,7 +996,7 @@ define([
                 source +
                 '}\n';
 
-            if (defined(scene.depthWeightFunction) && scene.depthWeightFunction.length > 0) {
+            if (defined(scene.weightFunction) && scene.weightFunction.length > 0) {
                 newSourceFS = newSourceFS.replace(/czm_alphaWeight/g, 'oit_alphaWeight');
             }
 
@@ -1004,8 +1005,9 @@ define([
             var valid = true;
             try {
                 // force compile and link
-                shaderProgram.getVertexAttributes();
+                shader.getVertexAttributes();
             } catch (e) {
+                scene._errorMessage = e.message;
                 valid = false;
             }
 
@@ -1214,8 +1216,8 @@ define([
             executeTranslucentCommands = executeTranslucentCommandsInOrder;
         }
 
-        var updateShader = scene._depthWeightFunction !== scene.depthWeightFunction;
-        scene._depthWeightFunction = scene.depthWeightFunction;
+        var updateShader = scene._weightFunction !== scene.weightFunction;
+        scene._weightFunction = scene.weightFunction;
 
         var frustumCommandsList = scene._frustumCommandsList;
         var numFrustums = frustumCommandsList.length;
