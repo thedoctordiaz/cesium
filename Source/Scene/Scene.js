@@ -1579,7 +1579,7 @@ define([
                 var performanceContainer = document.createElement('div');
                 performanceContainer.style.position = 'absolute';
                 performanceContainer.style.top = '10px';
-                performanceContainer.style.left = '10px';
+                performanceContainer.style.right = '10px';
                 var container = this._canvas.parentNode;
                 container.appendChild(performanceContainer);
                 var performanceDisplay = new PerformanceDisplay({container: performanceContainer});
