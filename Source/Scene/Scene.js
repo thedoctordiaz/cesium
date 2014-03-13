@@ -9,6 +9,7 @@ define([
         '../Core/DeveloperError',
         '../Core/GeographicProjection',
         '../Core/Ellipsoid',
+        '../Core/Event',
         '../Core/Occluder',
         '../Core/BoundingRectangle',
         '../Core/BoundingSphere',
@@ -67,6 +68,7 @@ define([
         DeveloperError,
         GeographicProjection,
         Ellipsoid,
+        Event,
         Occluder,
         BoundingRectangle,
         BoundingSphere,
@@ -214,6 +216,11 @@ define([
          */
         this.weightFunction = 'pow(a + 0.01, 4.0) + max(1e-2, min(3.0 * 1e3, 100.0 / (1e-5 + pow(abs(z) / 10.0, 3.0) + pow(abs(z) / 200.0, 6.0))))';
         this._weightFunction = this.weightFunction;
+
+        /**
+         * @private
+         */
+        this.onError = new Event();
         this._errorMessage = undefined;
 
         /**
@@ -1654,6 +1661,11 @@ define([
 
         context.endFrame();
         callAfterRenderFunctions(frameState);
+
+        if (defined(this._errorMessage)) {
+            this.onError.raiseEvent(this._errorMessage);
+            this._errorMessage = undefined;
+        }
     };
 
     var orthoPickingFrustum = new OrthographicFrustum();
