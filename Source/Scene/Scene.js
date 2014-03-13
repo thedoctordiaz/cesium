@@ -1058,16 +1058,20 @@ define([
         return getTranslucentShaderProgram(scene, shaderProgram, scene._alphaShaderCache, alphaShaderSource, forceUpdate);
     }
 
-    function executeTranslucentCommandsInOrder(scene, passState, frustumCommands) {
+    function executeTranslucentCommandsSorted(scene, passState, frustumCommands) {
         var context = scene._context;
         var commands = frustumCommands.translucentCommands;
         var length = commands.length = frustumCommands.translucentIndex;
+
+        var translucentCompare = createTranslucentCompareFunction(scene._camera.positionWC);
+        sort(commands, translucentCompare);
+
         for (var j = 0; j < length; ++j) {
             executeCommand(commands[j], scene, context, passState);
         }
     }
 
-    function executeTranslucentCommandsSorted(scene, passState, frustumCommands, forceUpdate) {
+    function executeTranslucentCommandsSortedMultipass(scene, passState, frustumCommands, forceUpdate) {
         var command;
         var renderState;
         var shaderProgram;
@@ -1114,6 +1118,61 @@ define([
         }
 
         passState.framebuffer = framebuffer;
+    }
+
+    function createTranslucentCompareFunction(position) {
+        return function(a, b) {
+            if (defined(a.index) && defined(b.index)) {
+                return a.index - b.index;
+            }
+            return b.boundingVolume.distanceSquaredTo(position) - a.boundingVolume.distanceSquaredTo(position);
+        };
+    }
+
+    function merge(array, compare, start, middle, end) {
+        var leftLength = middle - start + 1;
+        var rightLength = end - middle;
+        var left = new Array(leftLength);
+        var right = new Array(rightLength);
+
+        var i;
+        var j;
+
+        for (i = 0; i < leftLength; ++i) {
+            left[i] = array[start + i];
+        }
+
+        for (j = 0; j < rightLength; ++j) {
+            right[j] = array[middle + j + 1];
+        }
+
+        i = 0;
+        j = 0;
+        for (var k = start; k <= end; ++k) {
+            var leftElement = left[i];
+            var rightElement = right[j];
+            if (defined(leftElement) && (!defined(rightElement) || compare(leftElement, rightElement) <= 0)) {
+                array[k] = leftElement;
+                ++i;
+            } else {
+                array[k] = rightElement;
+                ++j;
+            }
+        }
+    }
+
+    function sort(array, compare, start, end) {
+        start = defaultValue(start, 0);
+        end = defaultValue(end, array.length - 1);
+
+        if (start >= end) {
+            return;
+        }
+
+        var middle = Math.floor((start + end) * 0.5);
+        sort(array, compare, start, middle);
+        sort(array, compare, middle + 1, end);
+        merge(array, compare, start, middle, end);
     }
 
     var scratchPerspectiveFrustum = new PerspectiveFrustum();
@@ -1217,9 +1276,9 @@ define([
         var clearDepth = scene._depthClearCommand;
         var executeTranslucentCommands;
         if (sortTranslucent) {
-            executeTranslucentCommands = scene._translucentMRTSupport ? executeTranslucentCommandsSortedMRT : executeTranslucentCommandsSorted;
+            executeTranslucentCommands = scene._translucentMRTSupport ? executeTranslucentCommandsSortedMRT : executeTranslucentCommandsSortedMultipass;
         } else {
-            executeTranslucentCommands = executeTranslucentCommandsInOrder;
+            executeTranslucentCommands = executeTranslucentCommandsSorted;
         }
 
         var forceUpdate = scene._weightFunction !== scene.weightFunction || methodChanged;
