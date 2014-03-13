@@ -206,6 +206,12 @@ define([
         this._depthClearCommand = depthClearCommand;
 
         /**
+         * @private
+         */
+        this.depthWeightFunction = '';
+        this._depthWeightFunction = '';
+
+        /**
          * The {@link SkyBox} used to draw the stars.
          *
          * @type {SkyBox}
@@ -936,10 +942,10 @@ define([
         '    float ai = czm_gl_FragColor.a;\n' +
         '    gl_FragColor = vec4(ai);\n';
 
-    function getTranslucentShaderProgram(scene, shaderProgram, cache, source) {
+    function getTranslucentShaderProgram(scene, shaderProgram, cache, source, updateShader) {
         var id = shaderProgram.id;
         var shader = cache[id];
-        if (!defined(shader)) {
+        if (!defined(shader) || updateShader) {
             var attributeLocations = shaderProgram._attributeLocations;
             var vs = shaderProgram.vertexShaderSource;
             var fs = shaderProgram.fragmentShaderSource;
@@ -955,10 +961,20 @@ define([
                 '    v_z = ' + (hasPositionEC ? 'v_positionEC.z' : '(czm_modelViewRelativeToEye * czm_computePosition()).z') + ';\n' +
                 '}\n';
 
+            var weightFunction = '';
+            if (defined(scene.depthWeightFunction) && scene.depthWeightFunction.length > 0) {
+                weightFunction =
+                    'float oit_alphaWeight(float z, float a)\n' +
+                    '{\n' +
+                    '    return ' + scene.depthWeightFunction + ';\n' +
+                    '}\n';
+            }
+
             var renamedFS = fs.replace(/void\s+main\s*\(\s*(?:void)?\s*\)/g, 'void czm_translucent_main()');
             renamedFS = renamedFS.replace(/gl_FragColor/g, 'czm_gl_FragColor');
             renamedFS = renamedFS.replace(/discard/g, 'czm_discard = true');
             renamedFS = renamedFS.replace(/czm_phong/g, 'czm_translucentPhong');
+            renamedFS = renamedFS.replace(/czm_alphaWeight/g, 'oit_alphaWeight');
 
             // Discarding the fragment in main is a workaround for ANGLE D3D9
             // shader compilation errors.
@@ -967,6 +983,7 @@ define([
                 'vec4 czm_gl_FragColor;\n' +
                 'bool czm_discard = false;\n' +
                 'varying float v_z;\n\n' +
+                weightFunction + '\n\n' +
                 renamedFS + '\n\n' +
                 'void main()\n' +
                 '{\n' +
@@ -978,23 +995,61 @@ define([
                 source +
                 '}\n';
 
+            if (defined(scene.depthWeightFunction) && scene.depthWeightFunction.length > 0) {
+                newSourceFS = newSourceFS.replace(/czm_alphaWeight/g, 'oit_alphaWeight');
+            }
+
             shader = scene._context.getShaderCache().getShaderProgram(newSourceVS, newSourceFS, attributeLocations);
+
+            var valid = true;
+            try {
+                // force compile and link
+                shaderProgram.getVertexAttributes();
+            } catch (e) {
+                valid = false;
+            }
+
+            if (!valid) {
+                // try again with default weight function.
+                renamedFS = fs.replace(/void\s+main\s*\(\s*(?:void)?\s*\)/g, 'void czm_translucent_main()');
+                renamedFS = renamedFS.replace(/gl_FragColor/g, 'czm_gl_FragColor');
+                renamedFS = renamedFS.replace(/discard/g, 'czm_discard = true');
+                renamedFS = renamedFS.replace(/czm_phong/g, 'czm_translucentPhong');
+
+                newSourceFS =
+                    (source.indexOf('gl_FragData') !== -1 ? '#extension GL_EXT_draw_buffers : enable \n' : '') +
+                    'vec4 czm_gl_FragColor;\n' +
+                    'bool czm_discard = false;\n' +
+                    'varying float v_z;\n\n' +
+                    renamedFS + '\n\n' +
+                    'void main()\n' +
+                    '{\n' +
+                    '    czm_translucent_main();\n' +
+                    '    if (czm_discard)\n' +
+                    '    {\n' +
+                    '        discard;\n' +
+                    '    }\n' +
+                    source +
+                    '}\n';
+
+                shader = scene._context.getShaderCache().getShaderProgram(newSourceVS, newSourceFS, attributeLocations);
+            }
             cache[id] = shader;
         }
 
         return shader;
     }
 
-    function getTranslucentMRTShaderProgram(scene, shaderProgram) {
-        return getTranslucentShaderProgram(scene, shaderProgram, scene._translucentShaderCache, mrtShaderSource);
+    function getTranslucentMRTShaderProgram(scene, shaderProgram, updateShader) {
+        return getTranslucentShaderProgram(scene, shaderProgram, scene._translucentShaderCache, mrtShaderSource, updateShader);
     }
 
-    function getTranslucentColorShaderProgram(scene, shaderProgram) {
-        return getTranslucentShaderProgram(scene, shaderProgram, scene._translucentShaderCache, colorShaderSource);
+    function getTranslucentColorShaderProgram(scene, shaderProgram, updateShader) {
+        return getTranslucentShaderProgram(scene, shaderProgram, scene._translucentShaderCache, colorShaderSource, updateShader);
     }
 
-    function getTranslucentAlphaShaderProgram(scene, shaderProgram) {
-        return getTranslucentShaderProgram(scene, shaderProgram, scene._alphaShaderCache, alphaShaderSource);
+    function getTranslucentAlphaShaderProgram(scene, shaderProgram, updateShader) {
+        return getTranslucentShaderProgram(scene, shaderProgram, scene._alphaShaderCache, alphaShaderSource, updateShader);
     }
 
     function executeTranslucentCommandsInOrder(scene, passState, frustumCommands) {
@@ -1006,7 +1061,7 @@ define([
         }
     }
 
-    function executeTranslucentCommandsSorted(scene, passState, frustumCommands) {
+    function executeTranslucentCommandsSorted(scene, passState, frustumCommands, updateShader) {
         var command;
         var renderState;
         var shaderProgram;
@@ -1022,7 +1077,7 @@ define([
         for (j = 0; j < length; ++j) {
             command = commands[j];
             renderState = getTranslucentColorRenderState(scene, command.renderState);
-            shaderProgram = getTranslucentColorShaderProgram(scene, command.shaderProgram);
+            shaderProgram = getTranslucentColorShaderProgram(scene, command.shaderProgram, updateShader);
             executeCommand(command, scene, context, passState, renderState, shaderProgram);
         }
 
@@ -1031,14 +1086,14 @@ define([
         for (j = 0; j < length; ++j) {
             command = commands[j];
             renderState = getTranslucentAlphaRenderState(scene, command.renderState);
-            shaderProgram = getTranslucentAlphaShaderProgram(scene, command.shaderProgram);
+            shaderProgram = getTranslucentAlphaShaderProgram(scene, command.shaderProgram, updateShader);
             executeCommand(command, scene, context, passState, renderState, shaderProgram);
         }
 
         passState.framebuffer = framebuffer;
     }
 
-    function executeTranslucentCommandsSortedMRT(scene, passState, frustumCommands) {
+    function executeTranslucentCommandsSortedMRT(scene, passState, frustumCommands, updateShader) {
         var context = scene._context;
         var framebuffer = passState.framebuffer;
         var commands = frustumCommands.translucentCommands;
@@ -1048,7 +1103,7 @@ define([
         for (var j = 0; j < length; ++j) {
             var command = commands[j];
             var renderState = getTranslucentMRTRenderState(scene, command.renderState);
-            var shaderProgram = getTranslucentMRTShaderProgram(scene, command.shaderProgram);
+            var shaderProgram = getTranslucentMRTShaderProgram(scene, command.shaderProgram, updateShader);
             executeCommand(command, scene, context, passState, renderState, shaderProgram);
         }
 
@@ -1159,6 +1214,9 @@ define([
             executeTranslucentCommands = executeTranslucentCommandsInOrder;
         }
 
+        var updateShader = scene._depthWeightFunction !== scene.depthWeightFunction;
+        scene._depthWeightFunction = scene.depthWeightFunction;
+
         var frustumCommandsList = scene._frustumCommandsList;
         var numFrustums = frustumCommandsList.length;
         for (var i = 0; i < numFrustums; ++i) {
@@ -1184,7 +1242,7 @@ define([
             frustum.near = frustumCommands.near;
             us.updateFrustum(frustum);
 
-            executeTranslucentCommands(scene, passState, frustumCommands);
+            executeTranslucentCommands(scene, passState, frustumCommands, updateShader);
         }
 
         if (sortTranslucent) {
