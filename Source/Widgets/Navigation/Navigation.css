@@ -1,0 +1,84 @@
+.cesium-navigation-svgText {
+    fill: #edffff;
+    font-family: Sans-Serif;
+    font-size: 18px;
+    font-weight: bold;
+    text-anchor: middle;
+    cursor: pointer;
+}
+
+.cesium-navigation-blank {
+    cursor: pointer;
+    fill: #000;
+    fill-opacity: 0.01; /* This must be clickable, so it can't be 'fill: none'. */ 
+    stroke: none;
+}
+
+.cesium-navigation-circularButton {
+    cursor: pointer;
+    -moz-user-select: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.cesium-navigation-circularButton .cesium-navigation-buttonPath {
+    fill: #edffff;
+}
+
+.cesium-navigation-circularButton .cesium-navigation-buttonMain {
+    fill: #434343;
+}
+
+.cesium-navigation-zoomRingG {
+    cursor: pointer;
+}
+
+.cesium-navigation-zoomRingPointer {
+    cursor: pointer;
+    fill: #4E78A0;
+}
+
+.cesium-navigation-zoomRing {
+    fill: none;
+    stroke: #434343;
+    stroke-linecap: round;
+    stroke-width: 20;
+}
+
+.cesium-navigation-tiltRingG {
+    cursor: pointer;
+}
+
+.cesium-navigation-tiltRingPointer {
+    cursor: pointer;
+    fill: #4E78A0;
+}
+
+.cesium-navigation-tiltRing {
+    fill: none;
+    stroke: #434343;
+    stroke-linecap: round;
+    stroke-width: 20;
+}
+
+.cesium-navigation-knobOuter {
+    cursor: pointer;
+    fill: #434343;
+}
+
+.cesium-navigation-knobInner {
+    fill: #999999;
+}
+
+.cesium-navigation-panJoystick {
+    cursor: pointer;
+    fill: #4E78A0;
+}
+
+.cesium-navigation-arrow {
+    cursor: pointer;
+    fill: #434343;
+    stroke: #434343;
+    stroke-linejoin: round;
+    stroke-width: 2;
+}
