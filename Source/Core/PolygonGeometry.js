@@ -153,12 +153,37 @@ define([
     var appendTextureCoordinatesQuaternion = new Quaternion();
     var appendTextureCoordinatesMatrix3 = new Matrix3();
 
-    function computeAttributes(vertexFormat, geometry, outerPositions, ellipsoid, stRotation, bottom, wall) {
+    function computeAttributes(vertexFormat, geometry, outerPositions, ellipsoid, stRotation, bottom, wall, applyPerspectiveTexture, quadPositions) {
         if (vertexFormat.st || vertexFormat.normal || vertexFormat.tangent || vertexFormat.binormal) {
             // PERFORMANCE_IDEA: Compute before subdivision, then just interpolate during subdivision.
             // PERFORMANCE_IDEA: Compute with createGeometryFromPositions() for fast path when there's no holes.
             var tangentPlane = EllipsoidTangentPlane.fromPoints(outerPositions, ellipsoid);
             var boundingRectangle = computeBoundingRectangle(tangentPlane, outerPositions, stRotation, scratchBoundingRectangle);
+
+            var persp_tangentPlane = undefined, persp_matrix = undefined;
+
+            if (applyPerspectiveTexture == true && defined(quadPositions)) {
+                persp_tangentPlane = Cesium.EllipsoidTangentPlane.fromPoints(quadPositions, ellipsoid);
+                var positions2D = persp_tangentPlane.projectPointsOntoPlane(quadPositions, createGeometryFromPositionsPositions);
+
+                var f = [];
+//                f.push(new Cesium.Cartesian3(1, 0));
+//                f.push(new Cesium.Cartesian3(0, 0));
+//                f.push(new Cesium.Cartesian3(0, 1));
+//                f.push(new Cesium.Cartesian3(1, 1));
+
+                f.push(new Cesium.Cartesian3(0, 0));
+                f.push(new Cesium.Cartesian3(1, 0));
+                f.push(new Cesium.Cartesian3(1, 1));
+                f.push(new Cesium.Cartesian3(0, 1));
+
+                try
+                {
+                    persp_matrix = getPerspectiveTransform(positions2D, f);
+                } catch (e) {
+                    applyPerspectiveTexture = false;
+                }
+            }
 
             var origin = appendTextureCoordinatesOrigin;
             origin.x = boundingRectangle.x;
@@ -180,7 +205,13 @@ define([
             var binormal = scratchBinormal;
             var recomputeNormal = true;
 
-            var rotation = Quaternion.fromAxisAngle(tangentPlane._plane.normal, stRotation, appendTextureCoordinatesQuaternion);
+            var rotation;
+            if (applyPerspectiveTexture == true) {
+                rotation = Quaternion.fromAxisAngle(persp_tangentPlane._plane.normal, stRotation, appendTextureCoordinatesQuaternion);
+            }
+            else {
+                rotation = Quaternion.fromAxisAngle(tangentPlane._plane.normal, stRotation, appendTextureCoordinatesQuaternion);
+            }
             var textureMatrix = Matrix3.fromQuaternion(rotation, appendTextureCoordinatesMatrix3);
 
             var bottomOffset = length / 2;
@@ -198,14 +229,33 @@ define([
                     var st = tangentPlane.projectPointOntoPlane(p, appendTextureCoordinatesCartesian2);
                     Cartesian2.subtract(st, origin, st);
 
+                    // If we are using a perspective transform to calculate the texture coordinates.
+                    if (applyPerspectiveTexture == true) {
+                        st = persp_tangentPlane.projectPointOntoPlane(p, appendTextureCoordinatesCartesian2);
+                        st = Cesium.Matrix3.multiplyByVector(persp_matrix, new Cesium.Cartesian3(st.x, st.y, 1.));
+                        // Convert the perspective texture coordinates to homogeneous coordinates.
+                        st.x = st.x / st.z;
+                        st.y = st.y / st.z;
+                    }
                     if (bottom) {
-                        textureCoordinates[textureCoordIndex + bottomOffset2] = st.x / boundingRectangle.width;
-                        textureCoordinates[textureCoordIndex + 1 + bottomOffset2] = st.y / boundingRectangle.height;
+                        if (applyPerspectiveTexture == true) {
+                            textureCoordinates[textureCoordIndex + bottomOffset2] = st.x;
+                            textureCoordinates[textureCoordIndex + 1 + bottomOffset2] = st.y;
+                        }
+                        else {
+                            textureCoordinates[textureCoordIndex + bottomOffset2] = st.x / boundingRectangle.width;
+                            textureCoordinates[textureCoordIndex + 1 + bottomOffset2] = st.y / boundingRectangle.height;
+                        }
                     }
 
-                    textureCoordinates[textureCoordIndex] = st.x / boundingRectangle.width;
-                    textureCoordinates[textureCoordIndex + 1] = st.y / boundingRectangle.height;
-
+                    if (applyPerspectiveTexture == true) {
+                        textureCoordinates[textureCoordIndex] = st.x;
+                        textureCoordinates[textureCoordIndex + 1] = st.y;
+                    }
+                    else {
+                        textureCoordinates[textureCoordIndex] = st.x / boundingRectangle.width;
+                        textureCoordinates[textureCoordIndex + 1] = st.y / boundingRectangle.height;
+                    }
                     textureCoordIndex += 2;
                 }
 
@@ -562,6 +612,8 @@ define([
         var height = defaultValue(options.height, 0.0);
         var perPositionHeight = defaultValue(options.perPositionHeight, false);
 
+        var applyPerspectiveTexture = defaultValue(options.applyPerspectiveTexture, false);
+
         var extrudedHeight = options.extrudedHeight;
         var extrude = (defined(extrudedHeight) && (!CesiumMath.equalsEpsilon(height, extrudedHeight, CesiumMath.EPSILON6) || perPositionHeight));
         if (extrude) {
@@ -586,6 +638,7 @@ define([
         this._extrude = extrude;
         this._polygonHierarchy = polygonHierarchy;
         this._perPositionHeight = perPositionHeight;
+        this._applyPerspectiveTexture = applyPerspectiveTexture;
         this._workerName = 'createPolygonGeometry';
     };
 
@@ -637,7 +690,8 @@ define([
             stRotation : options.stRotation,
             ellipsoid : options.ellipsoid,
             granularity : options.granularity,
-            perPositionHeight : options.perPositionHeight
+            perPositionHeight : options.perPositionHeight,
+            applyPerspectiveTexture : options.applyPerspectiveTexture
         };
         return new PolygonGeometry(newOptions);
     };
@@ -662,6 +716,7 @@ define([
         var extrude = polygonGeometry._extrude;
         var polygonHierarchy = polygonGeometry._polygonHierarchy;
         var perPositionHeight = polygonGeometry._perPositionHeight;
+        var applyPerspectiveTexture = polygonGeometry._applyPerspectiveTexture;
 
         var boundingSphere;
         var walls;
@@ -730,20 +785,29 @@ define([
         var geometry;
         var geometries = [];
 
+        // Turn off perspective texturing if we have more than one polygon.
+        if (polygons.length > 1) {
+            applyPerspectiveTexture = false;
+        }
+        // Turn off perspective texturing if we do have the orginal quad or the original shape was not a quad.
+        if (!polygonGeometry._polygonHierarchy.positions || polygonGeometry._polygonHierarchy.positions.length != 4) {
+            applyPerspectiveTexture = false;
+        }
+
         if (extrude) {
             for (i = 0; i < polygons.length; i++) {
                 geometry = createGeometryFromPositionsExtruded(ellipsoid, polygons[i], granularity, polygonHierarchy[i], perPositionHeight);
                 if (defined(geometry)) {
                     topAndBottom = geometry.topAndBottom;
                     topAndBottom.geometry = PolygonGeometryLibrary.scaleToGeodeticHeightExtruded(topAndBottom.geometry, height, extrudedHeight, ellipsoid, perPositionHeight);
-                    topAndBottom.geometry = computeAttributes(vertexFormat, topAndBottom.geometry, outerPositions, ellipsoid, stRotation, true, false);
+                    topAndBottom.geometry = computeAttributes(vertexFormat, topAndBottom.geometry, outerPositions, ellipsoid, stRotation, true, false, applyPerspectiveTexture, polygonGeometry._polygonHierarchy.positions);
                     geometries.push(topAndBottom);
 
                     walls = geometry.walls;
                     for ( var k = 0; k < walls.length; k++) {
                         var wall = walls[k];
                         wall.geometry = PolygonGeometryLibrary.scaleToGeodeticHeightExtruded(wall.geometry, height, extrudedHeight, ellipsoid, perPositionHeight);
-                        wall.geometry = computeAttributes(vertexFormat, wall.geometry, outerPositions, ellipsoid, stRotation, true, true);
+                        wall.geometry = computeAttributes(vertexFormat, wall.geometry, outerPositions, ellipsoid, stRotation, true, true, applyPerspectiveTexture, polygonGeometry._polygonHierarchy.positions);
                         geometries.push(wall);
                     }
                 }
@@ -753,7 +817,7 @@ define([
                 geometry = createGeometryFromPositions(ellipsoid, polygons[i], granularity, perPositionHeight);
                 if (defined(geometry)) {
                     geometry.geometry = PolygonPipeline.scaleToGeodeticHeight(geometry.geometry, height, ellipsoid, !perPositionHeight);
-                    geometry.geometry = computeAttributes(vertexFormat, geometry.geometry, outerPositions, ellipsoid, stRotation, false, false);
+                    geometry.geometry = computeAttributes(vertexFormat, geometry.geometry, outerPositions, ellipsoid, stRotation, false, false, applyPerspectiveTexture, polygonGeometry._polygonHierarchy.positions);
                     geometries.push(geometry);
                 }
             }

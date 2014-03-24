@@ -154,7 +154,7 @@ define([
          */
         this.panJoystickDragging = false;
 
-        var radius = this._ellipsoid.getMaximumRadius();
+        var radius = this._ellipsoid.maximumRadius;
         this._zoomFactor = 1;
         this._rotateFactor = 1.0 / radius;
         this._rotateRateAdjustment = radius;

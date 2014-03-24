@@ -175,6 +175,17 @@ define([
          */
         this.asynchronous = defaultValue(options.asynchronous, true);
 
+
+        /**
+         * Determines if the texture coordinates will be calculated using a single best-fit perspective matrix.
+         * Note this mode will be disabled if the polygon is not a quad or if it has any holes.
+         *
+         * @type Boolean
+         *
+         * @default false
+         */
+        this.applyPerspectiveTexture = defaultValue(options.applyPerspectiveTexture, false);
+
         /**
          * This property is for debugging only; it is not for production use nor is it optimized.
          * <p>
@@ -360,7 +371,8 @@ define([
                         vertexFormat : EllipsoidSurfaceAppearance.VERTEX_FORMAT,
                         stRotation : this.textureRotationAngle,
                         ellipsoid : this.ellipsoid,
-                        granularity : this.granularity
+                        granularity : this.granularity,
+                        applyPerspectiveTexture: this.applyPerspectiveTexture
                     }),
                     id : this.id,
                     pickPrimitive : this

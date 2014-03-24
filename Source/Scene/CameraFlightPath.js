@@ -452,12 +452,6 @@ define([
                     onCancel: onCancel
                 };
             }
-        } else if (Cartesian3.equalsEpsilon(destination, frameState.camera.position, CesiumMath.EPSILON6)) {
-            return {
-                duration : 0,
-                onComplete : onComplete,
-                onCancel: onCancel
-            };
         }
 
         if (duration <= 0) {
