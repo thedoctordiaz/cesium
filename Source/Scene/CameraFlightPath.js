@@ -202,7 +202,9 @@ define([
         var startUp = Matrix4.multiplyByPointAsVector(camera.transform, camera.up, scratchStartUp);
         var startRight = Cartesian3.cross(startDirection, startUp, scratchStartRight);
 
-        var path = createPath3D(camera, ellipsoid, start, startUp, startRight, destination, duration);
+        var path = path = createPath3D(camera, ellipsoid, start, startUp, startRight, destination, duration);
+
+
         var orientations = createOrientations3D(path, startDirection, startUp, direction, up);
 
         var update = function(value) {
@@ -213,7 +215,9 @@ define([
             Matrix4.clone(camera.transform, currentFrame);
             Matrix4.clone(Matrix4.IDENTITY, camera.transform);
 
-            camera.position = path.evaluate(time, camera.position);
+            if (path != undefined) {
+                camera.position = path.evaluate(time, camera.position);
+            }
             camera.right = Matrix3.getRow(rotMatrix, 0, camera.right);
             camera.up = Matrix3.getRow(rotMatrix, 1, camera.up);
             camera.direction = Cartesian3.negate(Matrix3.getRow(rotMatrix, 2, camera.direction), camera.direction);

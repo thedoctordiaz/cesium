@@ -96,6 +96,40 @@ define([
         return result;
     };
 
+    var v21diffScratch = new Cartesian3();
+    var v32diffScratch = new Cartesian3();
+    var normScratch = new Cartesian3();
+
+    Plane.from3Points = function(p1, p2, p3, result) {
+        if (!defined(p1)) {
+            throw new DeveloperError('p1 is required.');
+        }
+        if (!defined(p2)) {
+            throw new DeveloperError('p2 is required.');
+        }
+        if (!defined(p3)) {
+            throw new DeveloperError('p3 is required.');
+        }
+
+        v21diffScratch = Cartesian3.subtract(p2, p1, v21diffScratch);
+        v32diffScratch = Cartesian3.subtract(p3, p2, v32diffScratch);
+
+        normScratch = Cartesian3.cross(v21diffScratch, v32diffScratch, normScratch);
+        var length = Cartesian3.magnitude(normScratch);
+        if (length > 1e-6) { Cartesian3.divideByScalar(normScratch, length, normScratch); }
+        else { Cartesian3.fromElements(0., 0., 0., normScratch); }
+
+        var d = -Cartesian3.dot(p1, normScratch);
+
+        if (!defined(result)) {
+            return new Plane(normScratch, d);
+        }
+
+        Cartesian3.clone(normScratch, result.normal);
+        result.distance = d;
+        return result;
+    }
+
     /**
      * Computes the signed shortest distance of a point to a plane.
      * The sign of the distance determines which side of the plane the point

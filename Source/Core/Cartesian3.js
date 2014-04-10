@@ -836,5 +836,6 @@ define([
         return '(' + this.x + ', ' + this.y + ', ' + this.z + ')';
     };
 
+
     return Cartesian3;
 });

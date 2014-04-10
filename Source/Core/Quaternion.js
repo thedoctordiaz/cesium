@@ -684,6 +684,120 @@ define([
         return 2.0 * Math.acos(quaternion.w);
     };
 
+    var sourceScratch;
+    var targetScratch;
+    var crossScratch;
+
+    /**
+     * Sets this Quaternion to be the rotation needs to bring {from} into {to}.
+     * @memberof Quaternion
+     *
+     * @param {from} The first point vec3.
+     * @param {to} The second point vec3.
+     */
+    Quaternion.prototype.makeRotate = function(from, to) {
+        sourceScratch = Cartesian3.fromElements(from.x, from.y, from.z, sourceScratch);
+        targetScratch = Cartesian3.fromElements(to.x, to.y, to.z, targetScratch);
+
+        var fromLen2 = Cartesian3.magnitudeSquared(from);
+        var fromLen;
+        // normalize only when necessary, epsilon test
+        if ((fromLen2 < 1.0-1e-7) || (fromLen2 > 1.0+1e-7)) {
+            fromLen = Math.sqrt(fromLen2);
+
+            sourceScratch = Cartesian3.divideByScalar(sourceScratch, fromLen, sourceScratch);
+        }
+        else {
+            fromLen = 1.0;
+        }
+
+        var toLen2 = Cartesian3.magnitudeSquared(to);
+        // normalize only when necessary, epsilon test
+        if ((toLen2 < 1.0-1e-7) || (toLen2 > 1.0+1e-7)) {
+            var toLen;
+            // re-use fromLen for case of mapping 2 vectors of the same length
+            if ((toLen2 > fromLen2-1e-7) && (toLen2 < fromLen2+1e-7)) {
+                toLen = fromLen;
+            }
+            else {
+                toLen = Math.sqrt(toLen2);
+            }
+            targetScratch = Cartesian3.divideByScalar(targetScratch, toLen, targetScratch);
+        }
+
+        // Now let's get into the real stuff
+        // Use "dot product plus one" as test as it can be re-used later on
+        var dotProdPlus1 = 1.0 + Cartesian3.dot(sourceScratch, targetScratch);
+
+
+        // Check for degenerate case of full u-turn. Use epsilon for detection
+        if (dotProdPlus1 < 1e-7) {
+
+            // Get an orthogonal vector of the given vector
+            // in a plane with maximum vector coordinates.
+            // Then use it as quaternion axis with pi angle
+            // Trick is to realize one value at least is >0.6 for a normalized vector.
+            if (Math.abs(sourceScratch.x) < 0.6) {
+                var norm = Math.sqrt(1.0 - sourceVector.x * sourceVector.x);
+                this.x = 0.0;
+                this.y = sourceVector.z / norm;
+                this.z = -sourceVector.y / norm;
+                this.w = 0.0;
+            } else if (Math.abs(sourceVector.y) < 0.6) {
+                var norm = Math.sqrt(1.0 - sourceVector.y * sourceVector.y);
+                this.x = -sourceVector.z / norm;
+                this.y = 0.0;
+                this.z = sourceVector.x / norm;
+                this.w = 0.0;
+            } else {
+                var norm = Math.sqrt(1.0 - sourceVector.z * sourceVector.z);
+                this.x = sourceVector.y / norm;
+                this.y = -sourceVector.x / norm;
+                this.z = 0.0;
+                this.w = 0.0;
+            }
+        }
+
+        else {
+            // Find the shortest angle quaternion that transforms normalized vectors
+            // into one other. Formula is still valid when vectors are colinear
+            var s = Math.sqrt(0.5 * dotProdPlus1);
+            crossScratch = Cartesian3.cross(sourceScratch, targetScratch, crossScratch);
+            crossScratch = Cartesian3.divideByScalar(crossScratch, 2.0*s, crossScratch);
+
+            this.x = crossScratch.x;
+            this.y = crossScratch.y;
+            this.z = crossScratch.z;
+            this.w = s;
+        }
+    };
+
+    var uvScratch;
+    var uuvScratch;
+    var qvecScratch;
+
+    /**
+     * Rotate the vector v by this quaternion and store the result into {result}.
+     * @memberof Quaternion
+     *
+     * @param {v} The vector to multiply by this quaterion.
+     * @parm {result} A vector to store the result.
+     * @returns {Cartesian3} The resultant vector.
+     */
+    Quaternion.prototype.multiplyVector3 = function(v, result) {
+
+        qvecScratch = Cartesian3.fromElements(this.x, this.y, this.z, qvecScratch);
+        uvScratch = Cartesian3.cross(qvecScratch, v, uvScratch);
+        uuvScratch = Cartesian3.cross(qvecScratch, uvScratch, uuvScratch);
+        uvScratch = Cartesian3.multiplyByScalar(uvScratch, 2.0*this.w, uvScratch);
+        uuvScratch = Cartesian3.multiplyByScalar(uuvScratch, 2.0, uuvScratch);
+
+        result = Cartesian3.add(v, uvScratch, result);
+        result = Cartesian3.add(result, uuvScratch, result);
+
+        return result;
+    };
+
     var lerpScratch;
     /**
      * Computes the linear interpolation or extrapolation at t using the provided quaternions.
