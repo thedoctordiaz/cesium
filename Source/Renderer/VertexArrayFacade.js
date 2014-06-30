@@ -298,7 +298,7 @@ define([
             // Create larger array buffer
             var arrayBuffer = undefined;
             try {
-                new ArrayBuffer(size * buffer.vertexSizeInBytes);
+                arrayBuffer = new ArrayBuffer(size * buffer.vertexSizeInBytes);
             }
             catch (e) {
                 console.error('VertexArrayFacade._resize: failed to allocate new ArrayBuffer');
