@@ -1108,7 +1108,13 @@ define([
 
             if (billboardsLength > 0) {
                 // PERFORMANCE_IDEA:  Instead of creating a new one, resize like std::vector.
-                this._vaf = createVAF(context, billboardsLength, this._buffersUsage);
+                try {
+                    this._vaf = createVAF(context, billboardsLength, this._buffersUsage);
+                }
+                catch (e) {
+                    this._createVertexArray = true;
+                    throw e;
+                }
                 vafWriters = this._vaf.writers;
 
                 // Rewrite entire buffer if billboards were added or removed.

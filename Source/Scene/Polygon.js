@@ -186,6 +186,17 @@ define([
          */
         this.applyPerspectiveTexture = defaultValue(options.applyPerspectiveTexture, false);
 
+
+        /**
+         * Sets the extruded height that is passed to PolygonHierarchy.
+         *
+         * @type Number
+         *
+         * @default undefined
+         */
+        this.extrudedHeight = defaultValue(options.extrudedHeight, undefined);
+        this._extrudedHeight = undefined;
+
         /**
          * This property is for debugging only; it is not for production use nor is it optimized.
          * <p>
@@ -347,7 +358,8 @@ define([
             (this._granularity !== this.granularity) ||
             (this._height !== this.height) ||
             (this._textureRotationAngle !== this.textureRotationAngle) ||
-            (this._id !== this.id)) {
+            (this._id !== this.id) ||
+            (this._extrudedHeight != this.extrudedHeight)) {
 
             this._createPrimitive = false;
             this._ellipsoid = this.ellipsoid;
@@ -355,6 +367,7 @@ define([
             this._height = this.height;
             this._textureRotationAngle = this.textureRotationAngle;
             this._id = this.id;
+            this._extrudedHeight = this.extrudedHeight;
 
             this._primitive = this._primitive && this._primitive.destroy();
 
@@ -372,7 +385,8 @@ define([
                         stRotation : this.textureRotationAngle,
                         ellipsoid : this.ellipsoid,
                         granularity : this.granularity,
-                        applyPerspectiveTexture: this.applyPerspectiveTexture
+                        applyPerspectiveTexture: this.applyPerspectiveTexture,
+                        extrudedHeight: this.extrudedHeight
                     }),
                     id : this.id,
                     pickPrimitive : this
@@ -385,7 +399,8 @@ define([
                         vertexFormat : EllipsoidSurfaceAppearance.VERTEX_FORMAT,
                         stRotation : this.textureRotationAngle,
                         ellipsoid : this.ellipsoid,
-                        granularity : this.granularity
+                        granularity : this.granularity,
+                        extrudedHeight: this.extrudedHeight
                     }),
                     id : this.id,
                     pickPrimitive : this

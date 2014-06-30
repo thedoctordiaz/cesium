@@ -296,8 +296,16 @@ define([
     VertexArrayFacade._resize = function(buffer, size) {
         if (buffer.vertexSizeInBytes > 0) {
             // Create larger array buffer
-            var arrayBuffer = new ArrayBuffer(size * buffer.vertexSizeInBytes);
-
+            var arrayBuffer = undefined;
+            try {
+                new ArrayBuffer(size * buffer.vertexSizeInBytes);
+            }
+            catch (e) {
+                console.error('VertexArrayFacade._resize: failed to allocate new ArrayBuffer');
+                console.error('VertexArrayFacade._resize: size in vertices: %d', size);
+                console.error('VertexArrayFacade._resize: size of one vertex in bytes: %d', buffer.vertexSizeInBytes);
+                throw e;
+            }
             // Copy contents from previous array buffer
             if (buffer.arrayBuffer) {
                 var destView = new Uint8Array(arrayBuffer);
